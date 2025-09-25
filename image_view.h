@@ -75,7 +75,7 @@ public:
     bool inside(const std::vector<cv::Point2f> &corners) const;
     bool intersects(const std::vector<cv::Point2f> &corners) const;
 
-    /** Constructs a ImageView from the give mve::CameraInfo containing the given image. */
+    /** Constructs a ImageView from the given metadata */
     ImageView(std::size_t id, const math::Vec3f &translation,
               const math::Vec3f &rotation,
               std::shared_ptr<Undistorter> undistorter,

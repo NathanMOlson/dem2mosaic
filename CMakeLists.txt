@@ -32,6 +32,7 @@ externalproject_add(ext_mapmap
 externalproject_add(ext_mve
     PREFIX          mve
     GIT_REPOSITORY  https://github.com/nmoehrle/mve.git
+    GIT_TAG         91c0f3fde0781399b2fe872d8e52e4899274a84a
     UPDATE_COMMAND  ""
     SOURCE_DIR      ${CMAKE_SOURCE_DIR}/elibs/mve
     CONFIGURE_COMMAND ""
@@ -46,9 +47,6 @@ include_directories(SYSTEM
     ${CMAKE_SOURCE_DIR}/elibs/mapmap/mapmap
     ${CMAKE_SOURCE_DIR}/elibs/mapmap/ext/dset
 )
-
-
-
 
 add_executable(dem2mosaic dem2mosaic.cpp quadmesh.cpp image_view.cpp undistorter.cpp)
 target_compile_options(dem2mosaic PUBLIC -Wall -Wextra -Werror)
