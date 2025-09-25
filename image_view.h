@@ -1,8 +1,7 @@
 #ifndef __IMAGE_VIEW_H__
 #define __IMAGE_VIEW_H__
 
-#include "math/vector.h"
-#include "math/matrix.h"
+#include <Eigen/Dense>
 #include "quadmesh.h"
 #include <opencv2/core.hpp>
 #include <opencv2/imgproc.hpp>
@@ -37,9 +36,9 @@ class ImageView
 private:
     std::size_t id;
 
-    math::Vec3f pos;
-    math::Vec3f viewdir;
-    math::Matrix4f _world_to_cam;
+    Eigen::Vector3f pos;
+    Eigen::Vector3f viewdir;
+    Eigen::Matrix<float, 4, 4> _world_to_cam;
     std::string image_file;
     cv::Mat image;
 
@@ -52,19 +51,19 @@ private:
 
     static constexpr size_t _tile_width = 32;
 
-    void initializeCameraPos(const math::Vec3f &trans, const math::Matrix3f &rot);
-    void initializeViewDir(const math::Matrix3f &rot);
-    void initializeWorldToCam(const math::Vec3f &trans, const math::Matrix3f &rot);
+    void initializeCameraPos(const Eigen::Vector3f &trans, const Eigen::Matrix<float, 3, 3> &rot);
+    void initializeViewDir(const Eigen::Matrix<float, 3, 3> &rot);
+    void initializeWorldToCam(const Eigen::Vector3f &trans, const Eigen::Matrix<float, 3, 3> &rot);
 
 public:
     /** Returns the id of the TexureView which is consistent for every run. */
     std::size_t get_id(void) const;
 
     /** Returns the 2D pixel coordinates of the given vertex projected into the view. */
-    cv::Point2f get_pixel_coords(math::Vec3f const &vertex) const;
-    std::vector<cv::Point2f> get_pixel_coords(const std::vector<math::Vec3f> &vertex) const;
+    cv::Point2f get_pixel_coords(Eigen::Vector3f const &vertex) const;
+    std::vector<cv::Point2f> get_pixel_coords(const std::vector<Eigen::Vector3f> &vertex) const;
     /** Returns the RGB pixel values [0, 1] for the given vertex projected into the view, calculated by linear interpolation. */
-    //        math::Vec3f get_pixel_values(math::Vec3f const & vertex) const;
+    //        Eigen::Vector3f get_pixel_values(Eigen::Vector3f const & vertex) const;
 
     /** Returns whether the pixel location is valid in this view.
      * The pixel location is valid if its inside the visible area and,
@@ -76,8 +75,8 @@ public:
     bool intersects(const std::vector<cv::Point2f> &corners) const;
 
     /** Constructs a ImageView from the given metadata */
-    ImageView(std::size_t id, const math::Vec3f &translation,
-              const math::Vec3f &rotation,
+    ImageView(std::size_t id, const Eigen::Vector3f &translation,
+              const Eigen::Vector3f &rotation,
               std::shared_ptr<Undistorter> undistorter,
               const std::filesystem::path &image_file);
 
@@ -88,9 +87,9 @@ public:
     std::filesystem::path ImagePath() const;
 
     /** Returns the position. */
-    math::Vec3f get_pos(void) const;
+    Eigen::Vector3f get_pos(void) const;
     /** Returns the viewing direction. */
-    math::Vec3f get_viewing_direction(void) const;
+    Eigen::Vector3f get_viewing_direction(void) const;
 
     /** Loads the corresponding image. */
     void load_image(void);

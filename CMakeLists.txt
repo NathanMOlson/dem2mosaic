@@ -29,20 +29,7 @@ externalproject_add(ext_mapmap
     INSTALL_COMMAND ""
 )
 
-externalproject_add(ext_mve
-    PREFIX          mve
-    GIT_REPOSITORY  https://github.com/nmoehrle/mve.git
-    GIT_TAG         91c0f3fde0781399b2fe872d8e52e4899274a84a
-    UPDATE_COMMAND  ""
-    SOURCE_DIR      ${CMAKE_SOURCE_DIR}/elibs/mve
-    CONFIGURE_COMMAND ""
-    BUILD_COMMAND   make -C libs/mve && make -C libs/util #not platform independent
-    BUILD_IN_SOURCE 1
-    INSTALL_COMMAND ""
-)
-
 include_directories(SYSTEM
-    ${CMAKE_SOURCE_DIR}/elibs/mve/libs
     ${CMAKE_SOURCE_DIR}/elibs/mapmap/
     ${CMAKE_SOURCE_DIR}/elibs/mapmap/mapmap
     ${CMAKE_SOURCE_DIR}/elibs/mapmap/ext/dset
@@ -50,7 +37,7 @@ include_directories(SYSTEM
 
 add_executable(dem2mosaic dem2mosaic.cpp quadmesh.cpp image_view.cpp undistorter.cpp)
 target_compile_options(dem2mosaic PUBLIC -Wall -Wextra -Werror)
-add_dependencies(dem2mosaic ext_mve ext_mapmap)
+add_dependencies(dem2mosaic ext_mapmap)
 set_property(TARGET dem2mosaic PROPERTY INTERPROCEDURAL_OPTIMIZATION True)
 include_directories(${TBB_INCLUDE_DIRS})
 include_directories(CMAKE_CURRENT_SOURCE_DIR)

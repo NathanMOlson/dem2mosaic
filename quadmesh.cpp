@@ -41,9 +41,9 @@ size_t QuadMesh::NumFaceCols() const
 
 #include <iostream>
 
-math::Vec3f QuadMesh::GetVertex(size_t i, size_t j) const
+Eigen::Vector3f QuadMesh::GetVertex(size_t i, size_t j) const
 {
-    return math::Vec3f(_geo_transform[0] + j * _geo_transform[1] + i * _geo_transform[2],
+    return Eigen::Vector3f(_geo_transform[0] + j * _geo_transform[1] + i * _geo_transform[2],
                        _geo_transform[3] + j * _geo_transform[4] + i * _geo_transform[5],
                        _image.at<float>(i, j));
 }

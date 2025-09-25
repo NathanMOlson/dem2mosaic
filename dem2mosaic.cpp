@@ -178,7 +178,7 @@ std::vector<std::vector<QuadInfo>> calculate_face_projection_infos(const QuadMes
 {
     std::vector<std::vector<QuadInfo>> face_projection_infos(mesh.NumFaces());
     // std::vector<unsigned int> const & faces = mesh.get_faces();
-    // std::vector<math::Vec3f> const & vertices = mesh.get_vertices();
+    // std::vector<Eigen::Vector3f> const & vertices = mesh.get_vertices();
     // mve::TriangleMesh::NormalList const & face_normals = mesh.get_face_normals();
 
     std::size_t const num_views = image_views.size();
@@ -207,21 +207,21 @@ std::vector<std::vector<QuadInfo>> calculate_face_projection_infos(const QuadMes
                 continue;
             }
 
-            math::Vec3f const &view_pos = image_view.get_pos();
-            math::Vec3f const &viewing_direction = image_view.get_viewing_direction();
+            Eigen::Vector3f const &view_pos = image_view.get_pos();
+            Eigen::Vector3f const &viewing_direction = image_view.get_viewing_direction();
 
             for (std::size_t i = 0; i < mesh.NumFaceRows(); i++)
             {
                 for (std::size_t j = 0; j < mesh.NumFaceCols(); j++)
                 {
                     std::size_t face_id = i * mesh.NumFaceCols() + j;
-                    std::vector<math::Vec3f> corner_points;
-                    math::Vec3f const &v1 = mesh.GetVertex(i, j);
-                    math::Vec3f const &v2 = mesh.GetVertex(i, j + 1);
-                    math::Vec3f const &v3 = mesh.GetVertex(i + 1, j + 1);
-                    math::Vec3f const &v4 = mesh.GetVertex(i + 1, j);
-                    math::Vec3f const &face_normal = math::cross_product(v3 - v1, v2 - v4);
-                    math::Vec3f const face_center = (v1 + v2 + v3 + v4) / 4.0f;
+                    std::vector<Eigen::Vector3f> corner_points;
+                    Eigen::Vector3f const &v1 = mesh.GetVertex(i, j);
+                    Eigen::Vector3f const &v2 = mesh.GetVertex(i, j + 1);
+                    Eigen::Vector3f const &v3 = mesh.GetVertex(i + 1, j + 1);
+                    Eigen::Vector3f const &v4 = mesh.GetVertex(i + 1, j);
+                    Eigen::Vector3f const &face_normal = (v3 - v1).cross(v2 - v4);
+                    Eigen::Vector3f const face_center = (v1 + v2 + v3 + v4) / 4.0f;
 
                     corner_points.push_back(v1);
                     corner_points.push_back(v2);
@@ -231,9 +231,9 @@ std::vector<std::vector<QuadInfo>> calculate_face_projection_infos(const QuadMes
                     std::vector<cv::Point2f> corner_pixels = image_view.get_pixel_coords(corner_points);
 
                     /* Check visibility and compute quality */
-                    math::Vec3f view_to_face_vec = (face_center - view_pos).normalized();
-                    math::Vec3f face_to_view_vec = -view_to_face_vec;
-                    math::Vec3f up(0, 0, 1);
+                    Eigen::Vector3f view_to_face_vec = (face_center - view_pos).normalized();
+                    Eigen::Vector3f face_to_view_vec = -view_to_face_vec;
+                    Eigen::Vector3f up(0, 0, 1);
 
                     /* Backface and basic frustum culling */
                     float viewing_angle = face_to_view_vec.dot(face_normal);
@@ -718,7 +718,7 @@ cv::Mat create_mosaic(std::vector<ImageView> &image_views, const QuadMesh &mesh,
             {
                 if (labels.at<uint16_t>(i, j) == k + 1)
                 {
-                    std::vector<math::Vec3f> corner_points;
+                    std::vector<Eigen::Vector3f> corner_points;
                     corner_points.push_back(mesh.GetVertex(i, j));
                     corner_points.push_back(mesh.GetVertex(i, j + 1));
                     corner_points.push_back(mesh.GetVertex(i + 1, j + 1));

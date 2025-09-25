@@ -5,67 +5,64 @@
 #include <nlohmann/json.hpp>
 using json = nlohmann::json;
 
-void ImageView::initializeCameraPos(const math::Vec3f &trans, const math::Matrix3f &rot)
+void ImageView::initializeCameraPos(const Eigen::Vector3f &trans, const Eigen::Matrix<float, 3, 3> &rot)
 {
-    pos[0] = -rot[0] * trans[0] - rot[3] * trans[1] - rot[6] * trans[2];
-    pos[1] = -rot[1] * trans[0] - rot[4] * trans[1] - rot[7] * trans[2];
-    pos[2] = -rot[2] * trans[0] - rot[5] * trans[1] - rot[8] * trans[2];
+    pos[0] = -rot(0,1) * trans[0] - rot(1,0) * trans[1] - rot(2,0) * trans[2];
+    pos[1] = -rot(0,1) * trans[0] - rot(1,1) * trans[1] - rot(2,1) * trans[2];
+    pos[2] = -rot(0,2) * trans[0] - rot(1,2) * trans[1] - rot(2,2) * trans[2];
 }
 
-void ImageView::initializeViewDir(const math::Matrix3f &rot)
+void ImageView::initializeViewDir(const Eigen::Matrix<float, 3, 3> &rot)
 {
-    viewdir[0] = rot[6];
-    viewdir[1] = rot[7];
-    viewdir[2] = rot[8];
+    viewdir[0] = rot(2,0);
+    viewdir[1] = rot(2,1);
+    viewdir[2] = rot(2,2);
 }
 
-void ImageView::initializeWorldToCam(const math::Vec3f &trans, const math::Matrix3f &rot)
+void ImageView::initializeWorldToCam(const Eigen::Vector3f &trans, const Eigen::Matrix<float, 3, 3> &rot)
 {
-    _world_to_cam[0] = rot[0];
-    _world_to_cam[1] = rot[1];
-    _world_to_cam[2] = rot[2];
-    _world_to_cam[3] = trans[0];
-    _world_to_cam[4] = rot[3];
-    _world_to_cam[5] = rot[4];
-    _world_to_cam[6] = rot[5];
-    _world_to_cam[7] = trans[1];
-    _world_to_cam[8] = rot[6];
-    _world_to_cam[9] = rot[7];
-    _world_to_cam[10] = rot[8];
-    _world_to_cam[11] = trans[2];
-    _world_to_cam[12] = 0.0f;
-    _world_to_cam[13] = 0.0f;
-    _world_to_cam[14] = 0.0f;
-    _world_to_cam[15] = 1.0f;
+    _world_to_cam(0,0) = rot(0,0);
+    _world_to_cam(0,1) = rot(0,1);
+    _world_to_cam(0,2) = rot(0,2);
+    _world_to_cam(0,3) = trans[0];
+    _world_to_cam(1,0) = rot(1,0);
+    _world_to_cam(1,1) = rot(1,1);
+    _world_to_cam(1,2) = rot(1,2);
+    _world_to_cam(1,3) = trans[1];
+    _world_to_cam(2,0) = rot(2,0);
+    _world_to_cam(2,1) = rot(2,1);
+    _world_to_cam(2,2) = rot(2,2);
+    _world_to_cam(2,3) = trans[2];
+    _world_to_cam(3,0) = 0.0f;
+    _world_to_cam(3,1) = 0.0f;
+    _world_to_cam(3,2) = 0.0f;
+    _world_to_cam(3,3) = 1.0f;
 }
 
-math::Matrix3f get_rotation_matrix(const math::Vec3f &rotation)
+Eigen::Matrix<float, 3, 3> get_rotation_matrix(const Eigen::Vector3f &rotation)
 {
     float len = rotation.norm();
-    math::Matrix3f K;
-    K[0] = 0;
-    K[1] = -rotation[2] / len;
-    K[2] = rotation[1] / len;
-    K[3] = rotation[2] / len;
-    K[4] = 0;
-    K[5] = -rotation[0] / len;
-    K[6] = -rotation[1] / len;
-    K[7] = rotation[0] / len;
-    K[8] = 0;
-    math::Matrix3f I(0.F);
-    I[0] = 1;
-    I[4] = 1;
-    I[8] = 1;
+    Eigen::Matrix<float, 3, 3> K;
+    K(0,1) = 0;
+    K(0,1) = -rotation[2] / len;
+    K(0,2) = rotation[1] / len;
+    K(1,0) = rotation[2] / len;
+    K(1,1) = 0;
+    K(1,2) = -rotation[0] / len;
+    K(2,0) = -rotation[1] / len;
+    K(2,1) = rotation[0] / len;
+    K(2,2) = 0;
+    Eigen::Matrix<float, 3, 3> I = Eigen::Matrix<float, 3, 3>::Identity();
     return I + K * sin(len) + K * K * (1 - cos(len));
 }
 
-ImageView::ImageView(std::size_t id, const math::Vec3f &translation,
-                     const math::Vec3f &rotation,
+ImageView::ImageView(std::size_t id, const Eigen::Vector3f &translation,
+                     const Eigen::Vector3f &rotation,
                      std::shared_ptr<Undistorter> undistorter,
                      const std::filesystem::path &image_file)
     : id(id), image_file(image_file), _undistorter(undistorter)
 {
-    math::Matrix3f rotation_matrix = get_rotation_matrix(rotation);
+    Eigen::Matrix<float, 3, 3> rotation_matrix = get_rotation_matrix(rotation);
     initializeCameraPos(translation, rotation_matrix);
     initializeViewDir(rotation_matrix);
     initializeWorldToCam(translation, rotation_matrix);
@@ -87,14 +84,14 @@ ImageView::ImageView(std::size_t id, const math::Vec3f &translation,
     cv::rotate(_weight_br, _weight_bl, cv::ROTATE_90_CLOCKWISE);
 }
 
-cv::Point2f ImageView::get_pixel_coords(math::Vec3f const &vertex) const
+cv::Point2f ImageView::get_pixel_coords(Eigen::Vector3f const &vertex) const
 {
-    math::Vec3f ray_cam = _world_to_cam.mult(vertex, 1.0f);
+    Eigen::Vector4f ray_cam = _world_to_cam * Eigen::Vector4f(vertex[0], vertex[1], vertex[2], 1.0f);
     ray_cam /= ray_cam[2];
     return _undistorter->GetPixelCoords(cv::Point3f(ray_cam[0], ray_cam[1], ray_cam[2]));
 }
 
-std::vector<cv::Point2f> ImageView::get_pixel_coords(const std::vector<math::Vec3f> &vertices) const
+std::vector<cv::Point2f> ImageView::get_pixel_coords(const std::vector<Eigen::Vector3f> &vertices) const
 {
     std::vector<cv::Point2f> pixels;
     for (const auto &vertex : vertices)
@@ -147,12 +144,12 @@ std::size_t ImageView::get_id(void) const
     return id;
 }
 
-math::Vec3f ImageView::get_pos(void) const
+Eigen::Vector3f ImageView::get_pos(void) const
 {
     return pos;
 }
 
-math::Vec3f ImageView::get_viewing_direction(void) const
+Eigen::Vector3f ImageView::get_viewing_direction(void) const
 {
     return viewdir;
 }
@@ -318,8 +315,8 @@ std::vector<ImageView> generate_image_views(const std::filesystem::path &json_fi
     int i = 0;
     for (auto &[key, value] : data[0]["shots"].items())
     {
-        math::Vec3f translation(value["translation"][0], value["translation"][1], value["translation"][2]);
-        math::Vec3f rotation(value["rotation"][0], value["rotation"][1], value["rotation"][2]);
+        Eigen::Vector3f translation(value["translation"][0], value["translation"][1], value["translation"][2]);
+        Eigen::Vector3f rotation(value["rotation"][0], value["rotation"][1], value["rotation"][2]);
         std::filesystem::path image_path = json_file.parent_path() / std::filesystem::path("images") / key;
         image_views.push_back(ImageView(i, translation, rotation, undistorters[value["camera"]], image_path));
 

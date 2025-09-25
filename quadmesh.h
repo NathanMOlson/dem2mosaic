@@ -1,7 +1,7 @@
 #ifndef __QUADMESH_H__
 #define __QUADMESH_H__
 
-#include "math/vector.h"
+#include <Eigen/Dense>
 #include <opencv2/core.hpp>
 #include <filesystem>
 
@@ -12,7 +12,7 @@ public:
     size_t NumFaces() const;
     size_t NumFaceRows() const;
     size_t NumFaceCols() const;
-    math::Vec3f GetVertex(size_t i, size_t j) const;
+    Eigen::Vector3f GetVertex(size_t i, size_t j) const;
 
 private:
     cv::Mat _image;
