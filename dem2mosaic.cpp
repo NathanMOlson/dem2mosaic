@@ -578,55 +578,57 @@ cv::Mat global_seam_leveling(const cv::Mat &labels, const std::vector<std::vecto
     std::vector<float> coefficients_b;
     row = 0;
 
-    for (int i = 0; i < labels.rows; i++)
+    for (int i = 0; i <= labels.rows; i++)
     {
-        for (int j = 0; j < labels.cols; j++)
+        for (int j = 0; j <= labels.cols; j++)
         {
-            std::set<uint16_t> marked_labels;
+            std::vector<uint16_t> tile_labels;
+            std::vector<int32_t> vertex_indices;
 
             if (i > 0 && j > 0)
             {
-                uint16_t label = labels.at<uint16_t>(i, j);
-                marked_labels.insert(label);
-                uint16_t label2 = labels.at<uint16_t>(i - 1, j - 1);
-                if (label > 0 && label2 > 0 && marked_labels.count(label2) == 0)
+                uint16_t label = labels.at<uint16_t>(i - 1, j - 1);
+                if (label > 0)
                 {
-                    coefficients_A.push_back(SpCoeff(row, index_image.at<int32_t>(2 * i, 2 * j), 1));
-                    coefficients_A.push_back(SpCoeff(row, index_image.at<int32_t>(2 * i - 1, 2 * j - 1), -1));
-                    coefficients_b.push_back(calculate_difference(quad_infos, labels.size(), i, j, label, label2));
-                    marked_labels.insert(label2);
-                    row++;
+                    tile_labels.push_back(label);
+                    vertex_indices.push_back(index_image.at<int32_t>(2 * i - 1, 2 * j - 1));
+                }
+            }
+            if (i > 0 && j < labels.cols)
+            {
+                uint16_t label = labels.at<uint16_t>(i - 1, j);
+                if (label > 0 && std::find(tile_labels.begin(), tile_labels.end(), label) == tile_labels.end())
+                {
+                    tile_labels.push_back(label);
+                    vertex_indices.push_back(index_image.at<int32_t>(2 * i - 1, 2 * j));
+                }
+            }
+            if (i < labels.rows && j > 0)
+            {
+                uint16_t label = labels.at<uint16_t>(i, j - 1);
+                if (label > 0 && std::find(tile_labels.begin(), tile_labels.end(), label) == tile_labels.end())
+                {
+                    tile_labels.push_back(label);
+                    vertex_indices.push_back(index_image.at<int32_t>(2 * i, 2 * j - 1));
+                }
+            }
+            if (i < labels.rows && j < labels.cols)
+            {
+                uint16_t label = labels.at<uint16_t>(i, j);
+                if (label > 0 && std::find(tile_labels.begin(), tile_labels.end(), label) == tile_labels.end())
+                {
+                    tile_labels.push_back(label);
+                    vertex_indices.push_back(index_image.at<int32_t>(2 * i, 2 * j));
                 }
             }
 
-            if (i > 0)
+            for (size_t i1 = 0; i1 < tile_labels.size(); i1++)
             {
-                uint16_t label = labels.at<uint16_t>(i, j);
-                marked_labels.insert(label);
-                uint16_t label2 = labels.at<uint16_t>(i - 1, j);
-                if (label > 0 && label2 > 0 && marked_labels.count(label2) == 0)
+                for (size_t i2 = i1 + 1; i2 < tile_labels.size(); i2++)
                 {
-                    coefficients_A.push_back(SpCoeff(row, index_image.at<int32_t>(2 * i, 2 * j), 1));
-                    coefficients_A.push_back(SpCoeff(row, index_image.at<int32_t>(2 * i - 1, 2 * j), -1));
-                    coefficients_b.push_back(calculate_difference(quad_infos, labels.size(), i, j, label, label2));
-                    marked_labels.insert(label);
-                    marked_labels.insert(label2);
-                    row++;
-                }
-            }
-
-            if (j > 0)
-            {
-                uint16_t label = labels.at<uint16_t>(i, j);
-                marked_labels.insert(label);
-                uint16_t label2 = labels.at<uint16_t>(i, j - 1);
-                if (label > 0 && label2 > 0 && marked_labels.count(label2) == 0)
-                {
-                    coefficients_A.push_back(SpCoeff(row, index_image.at<int32_t>(2 * i, 2 * j), 1));
-                    coefficients_A.push_back(SpCoeff(row, index_image.at<int32_t>(2 * i, 2 * j - 1), -1));
-                    coefficients_b.push_back(calculate_difference(quad_infos, labels.size(), i, j, label, label2));
-                    marked_labels.insert(label);
-                    marked_labels.insert(label2);
+                    coefficients_A.push_back(SpCoeff(row, vertex_indices[i1], 1));
+                    coefficients_A.push_back(SpCoeff(row, vertex_indices[i2], -1));
+                    coefficients_b.push_back(calculate_difference(quad_infos, labels.size(), i, j, tile_labels[i1], tile_labels[i2]));
                     row++;
                 }
             }
