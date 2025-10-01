@@ -43,7 +43,7 @@ Eigen::Matrix<float, 3, 3> get_rotation_matrix(const Eigen::Vector3f &rotation)
 {
     float len = rotation.norm();
     Eigen::Matrix<float, 3, 3> K;
-    K(0,1) = 0;
+    K(0,0) = 0;
     K(0,1) = -rotation[2] / len;
     K(0,2) = rotation[1] / len;
     K(1,0) = rotation[2] / len;

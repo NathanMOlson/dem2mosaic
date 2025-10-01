@@ -821,6 +821,10 @@ int main(int argc, char **argv)
             std::filesystem::path filepath = out_prefix;
             filepath += "_edge_cost.png";
             cv::imwrite(filepath, img);
+
+            filepath = out_prefix;
+            filepath += "_local_labeling.png";
+            cv::imwrite(filepath, labels);
         }
 
         try
