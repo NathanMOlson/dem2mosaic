@@ -756,21 +756,19 @@ int main(int argc, char **argv)
 {
     if (argc != 4)
     {
-        std::cout << "Usage: " << argv[0] << " <reconstruction file (.json)> <dem file (.tiff)> <output prefix>" << std::endl;
+        std::cout << "Usage: " << argv[0] << " <reconstruction file (.json)> <dem file (.tiff)> <output directory>" << std::endl;
         return -1;
     }
     const std::filesystem::path reconstruction_path(argv[1]);
     const std::filesystem::path dem_path(argv[2]);
-    const std::filesystem::path out_prefix(argv[3]);
-    const std::filesystem::path out_dir = out_prefix.parent_path();
+    const std::filesystem::path out_dir(argv[3]);
 
     const std::filesystem::path labeling_file;
     const bool write_intermediate_results = false;
 
     if (!std::filesystem::is_directory(out_dir))
     {
-        std::cerr << "Destination directory \"" << out_dir << "\" does not exist!" << std::endl;
-        std::exit(EXIT_FAILURE);
+        std::filesystem::create_directories(out_dir);
     }
 
     const std::filesystem::path tmp_dir = out_dir / "tmp";
@@ -828,12 +826,10 @@ int main(int argc, char **argv)
         {
             cv::Mat img;
             cv::normalize(tile_cost, img, 255, 0, cv::NORM_MINMAX, CV_8U);
-            std::filesystem::path filepath = out_prefix;
-            filepath += "_edge_cost.png";
+            std::filesystem::path filepath = out_dir / "edge_cost.png";
             cv::imwrite(filepath, img);
 
-            filepath = out_prefix;
-            filepath += "_local_labeling.png";
+            filepath = out_dir / "local_labeling.png";
             cv::imwrite(filepath, labels);
         }
 
@@ -847,8 +843,7 @@ int main(int argc, char **argv)
                 cv::Mat img;
                 img = adjustments + 128;
                 img.convertTo(img, CV_8U);
-                std::filesystem::path filepath = out_prefix;
-                filepath += "_adjustments.png";
+                std::filesystem::path filepath = out_dir / "adjustments.png";
                 cv::imwrite(filepath, img);
             }
 
@@ -863,8 +858,7 @@ int main(int argc, char **argv)
         /* Write labeling to file. */
         if (write_intermediate_results)
         {
-            std::filesystem::path filepath = out_prefix;
-            filepath += "_labeling.png";
+            std::filesystem::path filepath = out_dir / "labeling.png";
             cv::imwrite(filepath, labels);
         }
     }
@@ -874,16 +868,14 @@ int main(int argc, char **argv)
     }
 
     cv::Mat mosaic = create_mosaic(image_views, mesh, labels, adjustments);
-    std::filesystem::path filepath = out_prefix;
-    filepath += "_mosaic.png";
+    std::filesystem::path filepath = out_dir / "mosaic.png";
     cv::imwrite(filepath, mosaic);
 
     if (write_intermediate_results)
     {
         adjustments = 0;
         mosaic = create_mosaic(image_views, mesh, labels, adjustments);
-        std::filesystem::path filepath = out_prefix;
-        filepath += "_mosaic_unadjusted.png";
+        std::filesystem::path filepath = out_dir / "mosaic_unadjusted.png";
         cv::imwrite(filepath, mosaic);
     }
 
