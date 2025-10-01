@@ -578,6 +578,8 @@ cv::Mat global_seam_leveling(const cv::Mat &labels, const std::vector<std::vecto
     std::vector<float> coefficients_b;
     row = 0;
 
+    std::cout<<"labels: "<<labels.cols<<"x"<<labels.rows<<", "<<labels.type()<<std::endl;
+
     for (int i = 0; i < labels.rows; i++)
     {
         for (int j = 0; j < labels.cols; j++)
