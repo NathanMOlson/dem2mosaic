@@ -582,43 +582,53 @@ cv::Mat global_seam_leveling(const cv::Mat &labels, const std::vector<std::vecto
     {
         for (int j = 0; j < labels.cols; j++)
         {
-            uint16_t label = labels.at<uint16_t>(i, j);
-            if (label == 0)
-            {
-                continue;
-            }
-
             std::set<uint16_t> marked_labels;
-            marked_labels.insert(label);
 
-            uint16_t label2 = labels.at<uint16_t>(i - 1, j - 1);
-            if (i > 0 && j > 0 && label2 > 0 && marked_labels.count(label2) == 0)
+            if (i > 0 && j > 0)
             {
-                coefficients_A.push_back(SpCoeff(row, index_image.at<int32_t>(2 * i, 2 * j), 1));
-                coefficients_A.push_back(SpCoeff(row, index_image.at<int32_t>(2 * i - 1, 2 * j - 1), -1));
-                coefficients_b.push_back(calculate_difference(quad_infos, labels.size(), i, j, label, label2));
-                marked_labels.insert(label2);
-                row++;
+                uint16_t label = labels.at<uint16_t>(i, j);
+                marked_labels.insert(label);
+                uint16_t label2 = labels.at<uint16_t>(i - 1, j - 1);
+                if (label > 0 && label2 > 0 && marked_labels.count(label2) == 0)
+                {
+                    coefficients_A.push_back(SpCoeff(row, index_image.at<int32_t>(2 * i, 2 * j), 1));
+                    coefficients_A.push_back(SpCoeff(row, index_image.at<int32_t>(2 * i - 1, 2 * j - 1), -1));
+                    coefficients_b.push_back(calculate_difference(quad_infos, labels.size(), i, j, label, label2));
+                    marked_labels.insert(label2);
+                    row++;
+                }
             }
 
-            label2 = labels.at<uint16_t>(i - 1, j);
-            if (i > 0 && j < labels.cols && label2 > 0 && marked_labels.count(label2) == 0)
+            if (i > 0)
             {
-                coefficients_A.push_back(SpCoeff(row, index_image.at<int32_t>(2 * i, 2 * j), 1));
-                coefficients_A.push_back(SpCoeff(row, index_image.at<int32_t>(2 * i - 1, 2 * j), -1));
-                coefficients_b.push_back(calculate_difference(quad_infos, labels.size(), i, j, label, label2));
-                marked_labels.insert(label2);
-                row++;
+                uint16_t label = labels.at<uint16_t>(i, j);
+                marked_labels.insert(label);
+                uint16_t label2 = labels.at<uint16_t>(i - 1, j);
+                if (label > 0 && label2 > 0 && marked_labels.count(label2) == 0)
+                {
+                    coefficients_A.push_back(SpCoeff(row, index_image.at<int32_t>(2 * i, 2 * j), 1));
+                    coefficients_A.push_back(SpCoeff(row, index_image.at<int32_t>(2 * i - 1, 2 * j), -1));
+                    coefficients_b.push_back(calculate_difference(quad_infos, labels.size(), i, j, label, label2));
+                    marked_labels.insert(label);
+                    marked_labels.insert(label2);
+                    row++;
+                }
             }
 
-            label2 = labels.at<uint16_t>(i, j - 1);
-            if (i < labels.rows && j > 0 && label2 > 0 && marked_labels.count(label2) == 0)
+            if (j > 0)
             {
-                coefficients_A.push_back(SpCoeff(row, index_image.at<int32_t>(2 * i, 2 * j), 1));
-                coefficients_A.push_back(SpCoeff(row, index_image.at<int32_t>(2 * i, 2 * j - 1), -1));
-                coefficients_b.push_back(calculate_difference(quad_infos, labels.size(), i, j, label, label2));
-                marked_labels.insert(label2);
-                row++;
+                uint16_t label = labels.at<uint16_t>(i, j);
+                marked_labels.insert(label);
+                uint16_t label2 = labels.at<uint16_t>(i, j - 1);
+                if (label > 0 && label2 > 0 && marked_labels.count(label2) == 0)
+                {
+                    coefficients_A.push_back(SpCoeff(row, index_image.at<int32_t>(2 * i, 2 * j), 1));
+                    coefficients_A.push_back(SpCoeff(row, index_image.at<int32_t>(2 * i, 2 * j - 1), -1));
+                    coefficients_b.push_back(calculate_difference(quad_infos, labels.size(), i, j, label, label2));
+                    marked_labels.insert(label);
+                    marked_labels.insert(label2);
+                    row++;
+                }
             }
         }
     }
