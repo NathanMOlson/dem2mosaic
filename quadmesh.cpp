@@ -10,6 +10,7 @@ QuadMesh::QuadMesh(const std::filesystem::path &filepath)
         throw std::invalid_argument("Invalid file");
     }
 
+    GDALRegister_GTiff();
     GDALDataset *dataset = (GDALDataset *)GDALOpen(filepath.c_str(), GA_ReadOnly);
     if (dataset == nullptr)
     {
@@ -44,6 +45,6 @@ size_t QuadMesh::NumFaceCols() const
 Eigen::Vector3f QuadMesh::GetVertex(size_t i, size_t j) const
 {
     return Eigen::Vector3f(_geo_transform[0] + j * _geo_transform[1] + i * _geo_transform[2],
-                       _geo_transform[3] + j * _geo_transform[4] + i * _geo_transform[5],
-                       _image.at<float>(i, j));
+                           _geo_transform[3] + j * _geo_transform[4] + i * _geo_transform[5],
+                           _image.at<float>(i, j));
 }
