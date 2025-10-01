@@ -23,6 +23,7 @@ QuadMesh::QuadMesh(const std::filesystem::path &filepath)
         throw std::invalid_argument("Invalid file");
     }
     GDALClose(dataset);
+    GDALDestroyDriverManager();
 }
 
 size_t QuadMesh::NumFaces() const
@@ -39,8 +40,6 @@ size_t QuadMesh::NumFaceCols() const
 {
     return _image.cols - 1;
 }
-
-#include <iostream>
 
 Eigen::Vector3f QuadMesh::GetVertex(size_t i, size_t j) const
 {
