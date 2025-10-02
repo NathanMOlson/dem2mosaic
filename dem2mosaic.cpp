@@ -13,6 +13,7 @@
 #include "quadmesh.h"
 #include "image_view.h"
 #include "sparse_table.h"
+#include "save_geotiff.h"
 
 typedef Eigen::SparseMatrix<float> SpMat;
 typedef Eigen::Triplet<float, int> SpCoeff;
@@ -870,15 +871,15 @@ int main(int argc, char **argv)
     }
 
     cv::Mat mosaic = create_mosaic(image_views, mesh, labels, adjustments);
-    std::filesystem::path filepath = out_dir / "mosaic.png";
-    cv::imwrite(filepath, mosaic);
+    std::filesystem::path filepath = out_dir / "mosaic.tiff";
+    save_geotiff(filepath, mosaic);
 
     if (write_intermediate_results)
     {
         adjustments = 0;
         mosaic = create_mosaic(image_views, mesh, labels, adjustments);
-        std::filesystem::path filepath = out_dir / "mosaic_unadjusted.png";
-        cv::imwrite(filepath, mosaic);
+        std::filesystem::path filepath = out_dir / "mosaic_unadjusted.tiff";
+        save_geotiff(filepath, mosaic);
     }
 
     std::cout << "Created mosaic at " << filepath << std::endl;

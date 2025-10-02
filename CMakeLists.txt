@@ -35,11 +35,11 @@ include_directories(SYSTEM
     ${CMAKE_SOURCE_DIR}/elibs/mapmap/ext/dset
 )
 
-add_executable(dem2mosaic dem2mosaic.cpp quadmesh.cpp image_view.cpp undistorter.cpp)
+add_executable(dem2mosaic dem2mosaic.cpp quadmesh.cpp image_view.cpp undistorter.cpp save_geotiff.cpp)
 target_compile_options(dem2mosaic PUBLIC -Wall -Wextra -Werror)
 add_dependencies(dem2mosaic ext_mapmap)
 set_property(TARGET dem2mosaic PROPERTY INTERPROCEDURAL_OPTIMIZATION True)
 include_directories(${TBB_INCLUDE_DIRS})
 include_directories(CMAKE_CURRENT_SOURCE_DIR)
-target_link_libraries(dem2mosaic tbb opencv_core opencv_imgproc opencv_imgcodecs opencv_calib3d gdal)
+target_link_libraries(dem2mosaic tbb opencv_core opencv_imgproc opencv_imgcodecs opencv_calib3d gdal tiff geotiff)
 install(TARGETS dem2mosaic RUNTIME DESTINATION bin)
