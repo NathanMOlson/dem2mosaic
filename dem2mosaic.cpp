@@ -14,6 +14,7 @@
 #include "image_view.h"
 #include "sparse_table.h"
 #include "save_geotiff.h"
+#include "proj_info.h"
 
 typedef Eigen::SparseMatrix<float> SpMat;
 typedef Eigen::Triplet<float, int> SpCoeff;
@@ -757,14 +758,15 @@ cv::Mat create_mosaic(std::vector<ImageView> &image_views, const QuadMesh &mesh,
 
 int main(int argc, char **argv)
 {
-    if (argc != 4)
+    if (argc != 5)
     {
-        std::cout << "Usage: " << argv[0] << " <reconstruction file (.json)> <dem file (.tiff)> <output directory>" << std::endl;
+        std::cout << "Usage: " << argv[0] << " <reconstruction file (.json)> <dem file (.tiff)> <georef file> <output directory>" << std::endl;
         return -1;
     }
     const std::filesystem::path reconstruction_path(argv[1]);
     const std::filesystem::path dem_path(argv[2]);
-    const std::filesystem::path out_dir(argv[3]);
+    const std::filesystem::path georef_file(argv[3]);
+    const std::filesystem::path out_dir(argv[4]);
 
     const std::filesystem::path labeling_file;
     const bool write_intermediate_results = false;
@@ -870,16 +872,36 @@ int main(int argc, char **argv)
         labels = cv::imread(labeling_file, cv::IMREAD_ANYDEPTH);
     }
 
+    ProjInfo proj = parse_georef_file(georef_file);
+
+    constexpr size_t tile_width = 32;
+    GeoInfo geo;
+    mesh.GetGeoTransform(geo.transform);
+    geo.transform[1] /= tile_width;
+    geo.transform[2] /= tile_width;
+    geo.transform[4] /= tile_width;
+    geo.transform[5] /= tile_width;
+    
+    geo.transform[0] += proj.x_offset;
+    geo.transform[3] += proj.y_offset;
+
+    geo.model_type = ModelTypeProjected;
+    geo.raster_type = RasterPixelIsArea;
+    geo.projected_linear_units = Linear_Meter;
+    geo.geographic_angular_units = Angular_Degree;
+    geo.projected_coordinate_system = proj.crs;
+    geo.gdal_nodata_value = 0;
+
     cv::Mat mosaic = create_mosaic(image_views, mesh, labels, adjustments);
     std::filesystem::path filepath = out_dir / "mosaic.tiff";
-    save_geotiff(filepath, mosaic);
+    save_geotiff(filepath, mosaic, geo);
 
     if (write_intermediate_results)
     {
         adjustments = 0;
         mosaic = create_mosaic(image_views, mesh, labels, adjustments);
         std::filesystem::path filepath = out_dir / "mosaic_unadjusted.tiff";
-        save_geotiff(filepath, mosaic);
+        save_geotiff(filepath, mosaic, geo);
     }
 
     std::cout << "Created mosaic at " << filepath << std::endl;

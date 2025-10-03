@@ -47,3 +47,8 @@ Eigen::Vector3f QuadMesh::GetVertex(size_t i, size_t j) const
                            _geo_transform[3] + j * _geo_transform[4] + i * _geo_transform[5],
                            _image.at<float>(i, j));
 }
+
+void QuadMesh::GetGeoTransform(double* transform) const
+{
+    memcpy(transform, _geo_transform, sizeof(_geo_transform));
+}

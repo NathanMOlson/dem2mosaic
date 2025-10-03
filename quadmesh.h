@@ -13,6 +13,7 @@ public:
     size_t NumFaceRows() const;
     size_t NumFaceCols() const;
     Eigen::Vector3f GetVertex(size_t i, size_t j) const;
+    void GetGeoTransform(double* transform) const;
 
 private:
     cv::Mat _image;

@@ -2,7 +2,7 @@
 #include "geotiff/xtiffio.h"
 #include "geotiff/geotiffio.h"
 
-int save_geotiff(const std::filesystem::path &filepath, const cv::Mat &img)
+int save_geotiff(const std::filesystem::path &filepath, const cv::Mat &img, const GeoInfo &geo)
 {
     if (img.depth() != CV_8U && img.depth() != CV_16U)
     {
@@ -59,6 +59,52 @@ int save_geotiff(const std::filesystem::path &filepath, const cv::Mat &img)
     size_t bytes_per_line = bits_per_pixel / 8 * img.cols;
 
     TIFFSetField(tif, TIFFTAG_ROWSPERSTRIP, TIFFDefaultStripSize(tif, bytes_per_line));
+
+    // if (geo.t_utc)
+    // {
+    //     TIFFSetField(tif, TIFFTAG_DATETIME, tiff_time_string(geo.t_utc.value()).c_str());
+    // }
+    if (geo.model_type)
+    {
+        GTIFKeySet(gtif, GTModelTypeGeoKey, TYPE_SHORT, 1, *geo.model_type);
+    }
+    if (geo.raster_type)
+    {
+        GTIFKeySet(gtif, GTRasterTypeGeoKey, TYPE_SHORT, 1, *geo.raster_type);
+    }
+    if (geo.geographic_angular_units)
+    {
+        GTIFKeySet(gtif, GeogAngularUnitsGeoKey, TYPE_SHORT, 1, *geo.geographic_angular_units);
+    }
+    if (geo.projected_linear_units)
+    {
+        GTIFKeySet(gtif, ProjLinearUnitsGeoKey, TYPE_SHORT, 1, *geo.projected_linear_units);
+    }
+    if (geo.projected_coordinate_system)
+    {
+        GTIFKeySet(gtif, ProjectedCSTypeGeoKey, TYPE_SHORT, 1, *geo.projected_coordinate_system);
+    }
+    // if (geo.transform)
+    {
+        std::vector<double> tiepoints;
+        tiepoints.push_back(0.0);
+        tiepoints.push_back(0.0);
+        tiepoints.push_back(0.0);
+        tiepoints.push_back(geo.transform[0]);
+        tiepoints.push_back(geo.transform[3]);
+        tiepoints.push_back(0.0);
+        TIFFSetField(tif, TIFFTAG_GEOTIEPOINTS, tiepoints.size(), tiepoints.data());
+        std::vector<double> scale;
+        scale.push_back(geo.transform[1]);
+        scale.push_back(geo.transform[5]);
+        TIFFSetField(tif, TIFFTAG_GEOPIXELSCALE, scale.size(), scale.data());
+    }
+    if (geo.gdal_nodata_value)
+    {
+        TIFFSetField(tif, TIFFTAG_GDAL_NODATA, std::to_string(*geo.gdal_nodata_value).c_str());
+    }
+
+    GTIFWriteKeys(gtif);
 
     cv::Mat chip(tile_width, tile_width, img.type());
     for (int i = 0; i < img.rows; i += tile_width)
