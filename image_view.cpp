@@ -283,7 +283,7 @@ std::shared_ptr<Undistorter> create_undistorter_perspective(const json &cam)
     dist_coeffs.push_back(cam["k2"]);
     dist_coeffs.push_back(0);
     dist_coeffs.push_back(0);
-    return std::make_shared<Undistorter>(f, f, width / 2.0 - 0.5, height / 2.0 - 0.5, width, height, dist_coeffs);
+    return std::make_shared<Undistorter>(f, f, 0.0, 0.0, width, height, dist_coeffs);
 }
 
 std::shared_ptr<Undistorter> create_undistorter(const json &cam)
