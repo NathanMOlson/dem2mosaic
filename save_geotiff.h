@@ -15,6 +15,7 @@ struct GeoInfo
     std::optional<geounits_t> geographic_angular_units;
     std::optional<pcstype_t> projected_coordinate_system;
     std::optional<int64_t> gdal_nodata_value;
+    std::optional<double> capture_time;
 };
 
 int save_geotiff(const std::filesystem::path &filepath, const cv::Mat &img, const GeoInfo& geo);

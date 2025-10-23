@@ -1,6 +1,7 @@
 #ifndef __IMAGE_VIEW_H__
 #define __IMAGE_VIEW_H__
 
+#include <optional>
 #include <Eigen/Dense>
 #include "quadmesh.h"
 #include <opencv2/core.hpp>
@@ -40,6 +41,7 @@ private:
     Eigen::Vector3f viewdir;
     Eigen::Matrix<float, 4, 4> _world_to_cam;
     std::string image_file;
+    double _capture_time;
     cv::Mat image;
 
     cv::Mat _weight_tl;
@@ -77,6 +79,7 @@ public:
     /** Constructs a ImageView from the given metadata */
     ImageView(std::size_t id, const Eigen::Vector3f &translation,
               const Eigen::Vector3f &rotation,
+              double capture_time,
               std::shared_ptr<Undistorter> undistorter,
               const std::filesystem::path &image_file);
 
@@ -99,8 +102,11 @@ public:
 
     void get_face_info(const std::vector<cv::Point2f> &corners,
                        QuadInfo *face_info) const;
+
+    double get_capture_time() const;
 };
 
 std::vector<ImageView> generate_image_views(const std::filesystem::path &json_file);
+std::optional<double> get_mean_time(const std::vector<ImageView> &image_views);
 
 #endif
