@@ -1,6 +1,16 @@
 #include "save_geotiff.h"
 #include "geotiff/xtiffio.h"
 #include "geotiff/geotiffio.h"
+#include <sstream>
+
+std::string tiff_time_string(double t_utc)
+{
+    std::time_t t = t_utc;
+    std::tm tm = *std::gmtime(&t);
+    std::stringstream ss;
+    ss << std::put_time(&tm, "%Y:%m:%d %TZ");
+    return ss.str();
+}
 
 int save_geotiff(const std::filesystem::path &filepath, const cv::Mat &img, const GeoInfo &geo)
 {
@@ -60,10 +70,10 @@ int save_geotiff(const std::filesystem::path &filepath, const cv::Mat &img, cons
 
     TIFFSetField(tif, TIFFTAG_ROWSPERSTRIP, TIFFDefaultStripSize(tif, bytes_per_line));
 
-    // if (geo.t_utc)
-    // {
-    //     TIFFSetField(tif, TIFFTAG_DATETIME, tiff_time_string(geo.t_utc.value()).c_str());
-    // }
+    if (geo.capture_time_utc)
+    {
+        TIFFSetField(tif, TIFFTAG_DATETIME, tiff_time_string(geo.capture_time_utc.value()).c_str());
+    }
     if (geo.model_type)
     {
         GTIFKeySet(gtif, GTModelTypeGeoKey, TYPE_SHORT, 1, *geo.model_type);

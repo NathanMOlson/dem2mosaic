@@ -891,7 +891,7 @@ int main(int argc, char **argv)
     geo.geographic_angular_units = Angular_Degree;
     geo.projected_coordinate_system = proj.crs;
     geo.gdal_nodata_value = 0;
-    geo.capture_time = get_mean_time(image_views);
+    geo.capture_time_utc = get_mean_time(image_views);
 
     cv::Mat mosaic = create_mosaic(image_views, mesh, labels, adjustments);
     std::filesystem::path filepath = out_dir / "mosaic.tiff";
