@@ -83,7 +83,7 @@ public:
               std::shared_ptr<Undistorter> undistorter,
               const std::filesystem::path &image_file);
 
-    cv::Mat GetTile(const std::vector<cv::Point2f> &corners, int interp_type, int border_mode) const;
+    cv::Mat GetTile(const std::vector<cv::Point2f> &corners, int interp_type, int border_mode, bool preserve_max) const;
 
     bool IsImageLoaded() const;
 

@@ -740,7 +740,8 @@ cv::Mat create_mosaic(std::vector<ImageView> &image_views, const QuadMesh &mesh,
 
                     std::vector<cv::Point2f> corner_pixels = image_views[k].get_pixel_coords(corner_points);
 
-                    cv::Mat tile = image_views[k].GetTile(corner_pixels, cv::INTER_LINEAR, cv::BORDER_CONSTANT);
+                    constexpr bool preserve_max = true;
+                    cv::Mat tile = image_views[k].GetTile(corner_pixels, cv::INTER_LINEAR, cv::BORDER_CONSTANT, preserve_max);
 
                     cv::Mat adjustment = adjustments.at<float>(2 * i, 2 * j) * weight_tl +
                                          adjustments.at<float>(2 * i, 2 * j + 1) * weight_tr +

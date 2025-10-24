@@ -1,6 +1,6 @@
 #include "image_view.h"
 #include <opencv2/imgcodecs.hpp>
-
+#include <iostream>
 #include <fstream>
 #include <nlohmann/json.hpp>
 using json = nlohmann::json;
@@ -102,7 +102,7 @@ std::vector<cv::Point2f> ImageView::get_pixel_coords(const std::vector<Eigen::Ve
     return pixels;
 }
 
-cv::Mat ImageView::GetTile(const std::vector<cv::Point2f> &corners, int interp_type, int border_mode) const
+cv::Mat ImageView::GetTile(const std::vector<cv::Point2f> &corners, int interp_type, int border_mode, bool preserve_max) const
 {
     std::vector<cv::Point2f> tile_corners;
     tile_corners.push_back(cv::Point2f(-0.5, -0.5));
@@ -113,6 +113,45 @@ cv::Mat ImageView::GetTile(const std::vector<cv::Point2f> &corners, int interp_t
     cv::Mat warp = cv::getPerspectiveTransform(corners, tile_corners);
     cv::Mat tile(_tile_width, _tile_width, image.type());
     cv::warpPerspective(image, tile, warp, tile.size(), interp_type, border_mode);
+
+    if (preserve_max)
+    {
+        if (tile.type() != CV_8UC1 && tile.type() != CV_16UC1)
+        {
+            std::cout << "Cannot preserve max, image type unsupported: " << tile.type() << std::endl;
+            return tile;
+        }
+        float max_edge_length = 0;
+        for (int i = 0; i < 4; i++)
+        {
+            float edge_length = cv::norm(corners[(i + 1) % 4] - corners[i]);
+            max_edge_length = std::max(edge_length, max_edge_length);
+        }
+        int tile_width = ceil(1.414 * max_edge_length);
+        tile_corners[0] = cv::Point2f(-0.5, -0.5);
+        tile_corners[1] = cv::Point2f(tile_width - 0.5, -0.5);
+        tile_corners[2] = cv::Point2f(tile_width - 0.5, tile_width - 0.5);
+        tile_corners[3] = cv::Point2f(-0.5, tile_width - 0.5);
+        warp = cv::getPerspectiveTransform(corners, tile_corners);
+        cv::Mat max_preserving_tile(tile_width, tile_width, image.type());
+        cv::warpPerspective(image, max_preserving_tile, warp, max_preserving_tile.size(), cv::INTER_NEAREST, cv::BORDER_CONSTANT);
+        cv::Point max_loc;
+        double max_val;
+        cv::minMaxLoc(max_preserving_tile, NULL, &max_val, NULL, &max_loc);
+        int i = round((max_loc.y + 0.5) * (float)_tile_width / (float)tile_width - 0.5);
+        int j = round((max_loc.x + 0.5) * (float)_tile_width / (float)tile_width - 0.5);
+        if (tile.type() == CV_16UC1)
+        {
+            // std::cout << "tile width: " << tile_width << ", max " << max_val << " at " << max_loc << ": (" << i << "," << j << "), was " << (int)tile.at<uint16_t>(i, j) << std::endl;
+            tile.at<uint16_t>(i, j) = max_val;
+        }
+        else if (tile.type() == CV_8UC1)
+        {
+            // std::cout << "tile width: " << tile_width << ", max " << max_val << " at " << max_loc << ": (" << i << "," << j << "), was " << (int)tile.at<uint8_t>(i, j) << std::endl;
+            tile.at<uint8_t>(i, j) = max_val;
+        }
+    }
+
     return tile;
 }
 
@@ -204,7 +243,8 @@ void ImageView::get_face_info(const std::vector<cv::Point2f> &corners,
     }
 
     float gmi = 0;
-    cv::Mat tile = GetTile(corners, cv::INTER_LINEAR, cv::BORDER_REPLICATE);
+    constexpr bool preserve_max = false;
+    cv::Mat tile = GetTile(corners, cv::INTER_LINEAR, cv::BORDER_REPLICATE, preserve_max);
     cv::Mat tile_f;
     tile.convertTo(tile_f, CV_32F);
 
@@ -222,7 +262,7 @@ void ImageView::get_face_info(const std::vector<cv::Point2f> &corners,
     }
     else
     {
-        cv::Mat mask = GetTile(corners, cv::INTER_NEAREST, cv::BORDER_CONSTANT);
+        cv::Mat mask = GetTile(corners, cv::INTER_NEAREST, cv::BORDER_CONSTANT, preserve_max);
         if (mask.type() != CV_8U)
         {
             mask.convertTo(mask, CV_8U);
