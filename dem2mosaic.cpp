@@ -22,7 +22,8 @@ typedef SparseTable<std::uint32_t, std::uint16_t, float> DataCosts;
 
 cv::Mat view_selection(DataCosts const &data_costs, const QuadMesh &mesh,
                        const cv::Mat &tile_costs,
-                       const std::vector<float> &cost_table)
+                       const std::vector<float> &cost_table,
+                       size_t num_views)
 {
     using uint_t = unsigned int;
     using cost_t = float;
@@ -80,7 +81,6 @@ cv::Mat view_selection(DataCosts const &data_costs, const QuadMesh &mesh,
     mapmap::LabelSet<cost_t, simd_w> table_label_set(1, false);
     {
         std::vector<mapmap::_iv_st<cost_t, simd_w>> labels;
-        size_t num_views = 17;
         for (size_t i = 0; i < num_views; i++)
         {
             labels.push_back(i + 1);
@@ -331,13 +331,6 @@ cv::Mat best_local_labels(const std::vector<std::vector<QuadInfo>> &quad_infos, 
     cv::Mat labels = cv::Mat::zeros(mesh.NumFaceRows(), mesh.NumFaceCols(), CV_16U);
     tile_cost = cv::Mat::ones(mesh.NumFaceRows(), mesh.NumFaceCols(), CV_32F);
 
-    cv::Mat b[17];
-
-    for (cv::Mat &img : b)
-    {
-        img = cv::Mat::zeros(labels.rows * 2, labels.cols * 2, CV_16U);
-    }
-
     for (int i = 0; i < labels.rows; i++)
     {
         for (int j = 0; j < labels.cols; j++)
@@ -348,10 +341,6 @@ cv::Mat best_local_labels(const std::vector<std::vector<QuadInfo>> &quad_infos, 
 
             for (const QuadInfo &quad_info : quad_infos[index])
             {
-                b[quad_info.view_id].at<uint16_t>(2 * i, 2 * j) = quad_info.tl / quad_info.tl_w;
-                b[quad_info.view_id].at<uint16_t>(2 * i, 2 * j + 1) = quad_info.tr / quad_info.tr_w;
-                b[quad_info.view_id].at<uint16_t>(2 * i + 1, 2 * j + 1) = quad_info.br / quad_info.br_w;
-                b[quad_info.view_id].at<uint16_t>(2 * i + 1, 2 * j) = quad_info.bl / quad_info.bl_w;
                 if (quad_info.num_valid_pixels > num_valid || (quad_info.num_valid_pixels == num_valid && quad_info.quality > q))
                 {
                     q = quad_info.quality;
@@ -361,11 +350,6 @@ cv::Mat best_local_labels(const std::vector<std::vector<QuadInfo>> &quad_infos, 
                 }
             }
         }
-    }
-
-    for (int i = 0; i < 17; i++)
-    {
-        imwrite(std::to_string(i) + ".png", b[i]);
     }
 
     return labels;
@@ -841,7 +825,7 @@ int main(int argc, char **argv)
 
         try
         {
-            labels = view_selection(data_costs, mesh, tile_cost, pairwise_cost);
+            labels = view_selection(data_costs, mesh, tile_cost, pairwise_cost, n_views);
             adjustments = global_seam_leveling(labels, quad_infos);
 
             if (write_intermediate_results)
