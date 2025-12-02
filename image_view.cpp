@@ -174,6 +174,15 @@ inline float quad_area(const std::vector<cv::Point2f> &corners)
     return 0.5 * (corners[0].x * corners[1].y - corners[0].y * corners[1].x + corners[1].x * corners[2].y - corners[1].y * corners[2].x + corners[2].x * corners[3].y - corners[2].y * corners[3].x + corners[3].x * corners[0].y - corners[3].y * corners[0].x);
 }
 
+inline bool quad_good(const std::vector<cv::Point2f> &corners)
+{
+    double z1 = (corners[1].x - corners[0].x) * (corners[2].y - corners[1].y) - (corners[2].x - corners[1].x) * (corners[1].y - corners[0].y);
+    double z2 = (corners[2].x - corners[1].x) * (corners[3].y - corners[2].y) - (corners[3].x - corners[2].x) * (corners[2].y - corners[1].y);
+    double z3 = (corners[3].x - corners[2].x) * (corners[0].y - corners[3].y) - (corners[0].x - corners[3].x) * (corners[3].y - corners[2].y);
+    double z4 = (corners[0].x - corners[3].x) * (corners[1].y - corners[0].y) - (corners[1].x - corners[0].x) * (corners[0].y - corners[3].y);
+    return z1 > 0 && z2 > 0 && z3 > 0 && z4 > 0;
+}
+
 bool ImageView::valid_pixel(cv::Point2f pixel) const
 {
     return pixel.x >= 0 && pixel.x <= image.cols - 1 && pixel.y >= 0 && pixel.y <= image.rows - 1;
@@ -232,15 +241,22 @@ void ImageView::get_face_info(const std::vector<cv::Point2f> &corners,
                               QuadInfo *face_info) const
 {
     assert(!image.empty());
-    face_info->fully_visible = inside(corners);
+    face_info->fully_visible = false;
+    face_info->quality = false;
+
+    if (!quad_good(corners))
+    {
+        return;
+    }
 
     float area = quad_area(corners);
 
     if (area < std::numeric_limits<float>::epsilon())
     {
-        face_info->quality = 0.0f;
         return;
     }
+
+    face_info->fully_visible = inside(corners);
 
     float gmi = 0;
     constexpr bool preserve_max = false;
