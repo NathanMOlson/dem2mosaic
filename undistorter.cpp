@@ -18,6 +18,19 @@ Undistorter::Undistorter(double fx, double fy,
 
     _cam_new = cv::getDefaultNewCameraMatrix(_cam_old, cv::Size(width, height), true);
 
+    float x_out = 0;
+    float r = 0.25;
+    for (; r < 1.0e9; r*= 1.1)
+    {
+        cv::Point2f p = GetPixelCoords(cv::Point3f(r, 0, 1));
+        if (p.x < x_out)
+        {
+            break;
+        }
+        x_out = p.x;
+    }
+    _max_xy_length = r / 1.1;
+
     cv::initUndistortRectifyMap(_cam_old, _dist_coeffs, cv::noArray(), _cam_new, cv::Size(width, height), CV_16SC2, _map1, _map2);
 }
 
@@ -41,4 +54,9 @@ cv::Mat Undistorter::Undistort(const cv::Mat &img) const
     cv::Mat undistorted;
     cv::remap(img, undistorted, _map1, _map2, cv::INTER_LINEAR);
     return undistorted;
+}
+
+float Undistorter::MaxXYLength() const
+{
+    return _max_xy_length;
 }

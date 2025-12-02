@@ -89,6 +89,12 @@ cv::Point2f ImageView::get_pixel_coords(Eigen::Vector3f const &vertex) const
 {
     Eigen::Vector4f ray_cam = _world_to_cam * Eigen::Vector4f(vertex[0], vertex[1], vertex[2], 1.0f);
     ray_cam /= ray_cam[2];
+    float ray_xy_length = hypotf(ray_cam[0], ray_cam[1]);
+    if (ray_xy_length > _undistorter->MaxXYLength())
+    {
+        ray_cam[0] *= _undistorter->MaxXYLength() / ray_xy_length;
+        ray_cam[1] *= _undistorter->MaxXYLength() / ray_xy_length;
+    }
     return _undistorter->GetPixelCoords(cv::Point3f(ray_cam[0], ray_cam[1], ray_cam[2]));
 }
 
