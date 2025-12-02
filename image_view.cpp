@@ -176,7 +176,7 @@ inline float quad_area(const std::vector<cv::Point2f> &corners)
 
 bool ImageView::valid_pixel(cv::Point2f pixel) const
 {
-    return pixel.x >= -0.5 && pixel.x <= image.cols - 0.5 && pixel.y >= -0.5 && pixel.y <= image.rows - 0.5;
+    return pixel.x >= 0 && pixel.x <= image.cols - 1 && pixel.y >= 0 && pixel.y <= image.rows - 1;
 }
 
 std::size_t ImageView::get_id(void) const
