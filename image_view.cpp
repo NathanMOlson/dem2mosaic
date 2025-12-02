@@ -310,7 +310,7 @@ void ImageView::get_face_info(const std::vector<cv::Point2f> &corners,
     // cv::sqrt(grad_x + grad_y, grad_x);
     gmi = cv::mean(1 - 1 / ((grad_x + grad_y) / 32 + 1))[0];
 
-    face_info->quality = gmi;
+    face_info->quality = gmi * area / tile.rows / tile.cols;
 }
 
 double ImageView::get_capture_time() const

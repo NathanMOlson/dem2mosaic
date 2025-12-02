@@ -41,14 +41,16 @@ cv::Mat view_selection(DataCosts const &data_costs, const QuadMesh &mesh,
     {
         for (std::size_t j = 0; j < cols - 1; ++j)
         {
-            mgraph.add_edge(i * cols + j, i * cols + j + 1, (tile_costs.at<float>(i, j) + tile_costs.at<float>(i, j + 1)) / 2);
+            float edge_cost = (tile_costs.at<float>(i, j) + tile_costs.at<float>(i, j + 1)) / 2.F;
+            mgraph.add_edge(i * cols + j, i * cols + j + 1, 1.F + edge_cost * edge_cost);
         }
     }
     for (std::size_t i = 0; i < rows - 1; ++i)
     {
         for (std::size_t j = 0; j < cols; ++j)
         {
-            mgraph.add_edge(i * cols + j, (i + 1) * cols + j, (tile_costs.at<float>(i, j) + tile_costs.at<float>(i + 1, j)) / 2);
+            float edge_cost = (tile_costs.at<float>(i, j) + tile_costs.at<float>(i + 1, j)) / 2.F;
+            mgraph.add_edge(i * cols + j, (i + 1) * cols + j, 1.F + edge_cost * edge_cost);
         }
     }
     mgraph.update_components();
@@ -803,9 +805,15 @@ int main(int argc, char **argv)
         std::vector<float> pairwise_cost(n_views * n_views, 0);
         for (size_t i = 0; i < n_views; i++)
         {
+            float max_distance = 0;
             for (size_t j = i + 1; j < n_views; j++)
             {
-                pairwise_cost[i * n_views + j] = (image_views[i].get_pos() - image_views[j].get_pos()).norm() * 1.0e-3;
+                pairwise_cost[i * n_views + j] = (image_views[i].get_pos() - image_views[j].get_pos()).norm();
+                max_distance = std::max(max_distance, pairwise_cost[i * n_views + j]);
+            }
+            for (size_t j = i + 1; j < n_views; j++)
+            {
+                pairwise_cost[i * n_views + j] = 1.F * (1.F + 4.F * pairwise_cost[i * n_views + j] * pairwise_cost[i * n_views + j] / max_distance / max_distance);
                 pairwise_cost[j * n_views + i] = pairwise_cost[i * n_views + j];
             }
         }
@@ -866,7 +874,7 @@ int main(int argc, char **argv)
     geo.transform[2] /= tile_width;
     geo.transform[4] /= tile_width;
     geo.transform[5] /= tile_width;
-    
+
     geo.transform[0] += proj.x_offset;
     geo.transform[3] += proj.y_offset;
 
