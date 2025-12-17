@@ -3,7 +3,133 @@
 #include <iostream>
 #include <fstream>
 #include <nlohmann/json.hpp>
+#include <libexif/exif-data.h>
+#include <jxl/decode.h>
+#include <jxl/decode_cxx.h>
 using json = nlohmann::json;
+
+std::vector<uint8_t> extract_jxl_box(const std::filesystem::path &filepath, const std::string &box_name)
+{
+    std::vector<uint8_t> box;
+    JxlDecoderPtr dec = JxlDecoderMake(nullptr);
+
+    std::ifstream file(filepath, std::ios::binary);
+    std::vector<uint8_t> jxl = std::vector<uint8_t>(std::istreambuf_iterator<char>(file),
+                                std::istreambuf_iterator<char>());
+
+    // We're only interested in the Exif boxes in this example, so don't
+    // subscribe to events related to pixel data.
+    if (JXL_DEC_SUCCESS != JxlDecoderSubscribeEvents(
+                               dec.get(), JXL_DEC_BOX))
+    {
+        return box;
+    }
+    bool support_decompression = true;
+    if (JXL_DEC_SUCCESS != JxlDecoderSetDecompressBoxes(dec.get(), JXL_TRUE))
+    {
+        support_decompression = false;
+    }
+
+    JxlDecoderSetInput(dec.get(), (uint8_t *)jxl.data(), jxl.size());
+    JxlDecoderCloseInput(dec.get());
+
+    const size_t kChunkSize = 65536;
+    size_t output_pos = 0;
+
+    for (;;)
+    {
+        JxlDecoderStatus status = JxlDecoderProcessInput(dec.get());
+        if (status == JXL_DEC_ERROR)
+        {
+            return box;
+        }
+        else if (status == JXL_DEC_NEED_MORE_INPUT)
+        {
+            return box;
+        }
+        else if (status == JXL_DEC_BOX)
+        {
+            if (!box.empty())
+            {
+                size_t remaining = JxlDecoderReleaseBoxBuffer(dec.get());
+                box.resize(box.size() - remaining);
+                // No need to wait for JXL_DEC_SUCCESS or decode other boxes.
+                return box;
+            }
+            JxlBoxType type;
+            status = JxlDecoderGetBoxType(dec.get(), type,
+
+#if JPEGXL_MAJOR_VERSION == 0 && JPEGXL_MINOR_VERSION < 10
+                                          JXL_BOOL(support_decompression));
+#else
+                                          TO_JXL_BOOL(support_decompression));
+#endif
+            if (JXL_DEC_SUCCESS != status)
+            {
+                return box;
+            }
+            if (!memcmp(type, box_name.c_str(), 4))
+            {
+                box.resize(kChunkSize);
+                JxlDecoderSetBoxBuffer(dec.get(), box.data(), box.size());
+            }
+        }
+        else if (status == JXL_DEC_BOX_NEED_MORE_OUTPUT)
+        {
+            size_t remaining = JxlDecoderReleaseBoxBuffer(dec.get());
+            output_pos += kChunkSize - remaining;
+            box.resize(box.size() + kChunkSize);
+            JxlDecoderSetBoxBuffer(dec.get(), box.data() + output_pos,
+                                   box.size() - output_pos);
+        }
+        else if (status == JXL_DEC_SUCCESS)
+        {
+            if (!box.empty())
+            {
+                size_t remaining = JxlDecoderReleaseBoxBuffer(dec.get());
+                box.resize(box.size() - remaining);
+                return box;
+            }
+            return box;
+        }
+        else
+        {
+            return box;
+        }
+    }
+}
+
+std::optional<std::string> exif_read_string_tag(ExifData *exif, ExifIfd ifd, ExifTag tag)
+{
+    ExifEntry *entry = exif_content_get_entry(exif->ifd[ifd], tag);
+    if (!entry)
+    {
+        return std::nullopt;
+    }
+    char buf[1024];
+    exif_entry_get_value(entry, buf, sizeof(buf));
+    return std::string(buf);
+}
+
+std::string parse_serial_number(const std::filesystem::path jxl)
+{
+    std::vector<uint8_t> raw = extract_jxl_box(jxl, "Exif");
+
+    std::vector<uint8_t> raw_shifted(raw.size() + 2, 0);
+    raw_shifted[0] = 'E';
+    raw_shifted[1] = 'x';
+    raw_shifted[2] = 'i';
+    raw_shifted[3] = 'f';
+    std::copy(raw.begin() + 4, raw.end(), raw_shifted.begin() + 6);
+    ExifData *exif = exif_data_new();
+    if (!exif)
+    {
+        return "";
+    }
+    exif_data_load_data(exif, raw_shifted.data(), raw_shifted.size());
+
+    return exif_read_string_tag(exif, EXIF_IFD_EXIF, EXIF_TAG_BODY_SERIAL_NUMBER).value_or("");
+}
 
 void ImageView::initializeCameraPos(const Eigen::Vector3f &trans, const Eigen::Matrix<float, 3, 3> &rot)
 {
@@ -84,8 +210,7 @@ ImageView::ImageView(std::size_t id, const Eigen::Vector3f &translation,
     cv::rotate(_weight_br, _weight_tr, cv::ROTATE_90_COUNTERCLOCKWISE);
     cv::rotate(_weight_br, _weight_bl, cv::ROTATE_90_CLOCKWISE);
 
-    _serial_number = "001";
-
+    _serial_number = parse_serial_number(image_file);
 }
 
 cv::Point2f ImageView::get_pixel_coords(Eigen::Vector3f const &vertex) const
@@ -239,6 +364,10 @@ bool ImageView::intersects(const std::vector<cv::Point2f> &corners) const
 void ImageView::load_image(void)
 {
     image = cv::imread(image_file, cv::IMREAD_ANYDEPTH | cv::IMREAD_UNCHANGED);
+    if (image.empty())
+    {
+        image = cv::Mat::zeros(1024, 1280, CV_16U);
+    }
 }
 
 void ImageView::release_image(void)
@@ -266,6 +395,12 @@ void ImageView::get_face_info(const std::vector<cv::Point2f> &corners,
     }
 
     face_info->fully_visible = inside(corners);
+    // std::cout << face_info->view_id << ": " << area << std::endl;
+
+    // if(face_info->fully_visible)
+    // {
+    //     std::cout<<"Fully visible: "<<area<<std::endl;
+    // }
 
     float gmi = 0;
     constexpr bool preserve_max = false;
@@ -290,7 +425,7 @@ void ImageView::get_face_info(const std::vector<cv::Point2f> &corners,
             {
                 for (int j = 0; j < tile.cols; j++)
                 {
-                    (*histogram)[tile_f.at<float>(i,j)]++;
+                    (*histogram)[tile_f.at<float>(i, j)]++;
                 }
             }
         }
@@ -328,6 +463,13 @@ void ImageView::get_face_info(const std::vector<cv::Point2f> &corners,
     cv::multiply(grad_y, grad_y, grad_y);
     // cv::sqrt(grad_x + grad_y, grad_x);
     gmi = cv::mean(1 - 1 / ((grad_x + grad_y) / 32 + 1))[0];
+
+    static float max_gmi = 0;
+    if (gmi > max_gmi)
+    {
+        max_gmi = gmi;
+        // std::cout<< "New max GMI: "<<max_gmi<<" area: "<<area<<std::endl;
+    }
 
     face_info->quality = gmi * area / tile.rows / tile.cols;
 }

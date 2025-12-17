@@ -266,7 +266,7 @@ std::vector<std::vector<QuadInfo>> calculate_face_projection_infos(const QuadMes
                     info.view_id = k;
 
                     float distance = (corner_points[0] + corner_points[1] + corner_points[2] + corner_points[3]).norm() / 4;
-                    int distance_bucket = round(1.f * std::log2f(distance));
+                    int distance_bucket = round(2.f * std::log2f(distance));
                     if (histograms.count(sn) == 0)
                     {
                         histograms[sn] = std::map<int, std::vector<int>>();
