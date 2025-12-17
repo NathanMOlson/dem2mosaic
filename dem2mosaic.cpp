@@ -187,6 +187,8 @@ std::vector<std::vector<QuadInfo>> calculate_face_projection_infos(const QuadMes
 
     std::size_t const num_views = image_views.size();
 
+    std::map<std::string, std::map<int, std::vector<int>>> histograms;
+
     // std::cout << "\tBuilding BVH from " << mesh.NumFaces() << " faces... " << std::flush;
     // BVHTree bvh_tree(faces, vertices);
     // std::cout << "done. (Took: " << timer.get_elapsed() << " ms)" << std::endl;
@@ -204,6 +206,7 @@ std::vector<std::vector<QuadInfo>> calculate_face_projection_infos(const QuadMes
         {
 #endif
             ImageView image_view = image_views.at(k);
+            std::string sn = image_view.get_serial_number();
             image_view.load_image();
             if (!image_view.IsImageLoaded())
             {
@@ -262,7 +265,18 @@ std::vector<std::vector<QuadInfo>> calculate_face_projection_infos(const QuadMes
                     QuadInfo info;
                     info.view_id = k;
 
-                    image_view.get_face_info(corner_pixels, &info);
+                    float distance = (corner_points[0] + corner_points[1] + corner_points[2] + corner_points[3]).norm() / 4;
+                    int distance_bucket = round(1.f * std::log2f(distance));
+                    if (histograms.count(sn) == 0)
+                    {
+                        histograms[sn] = std::map<int, std::vector<int>>();
+                    }
+                    if (histograms[sn].count(distance_bucket) == 0)
+                    {
+                        histograms[sn][distance_bucket] = std::vector(65536, 0);
+                    }
+
+                    image_view.get_face_info(corner_pixels, &info, &histograms[sn][distance_bucket]);
 
                     if (info.quality <= 0.0)
                         continue;
@@ -288,6 +302,29 @@ std::vector<std::vector<QuadInfo>> calculate_face_projection_infos(const QuadMes
             projected_face_view_infos.clear();
         }
     }
+
+    for (const auto &[sn, hists] : histograms)
+    {
+        for (const auto &[bucket, hist] : hists)
+        {
+            double pixel_count = std::reduce(hist.begin(), hist.end());
+            std::cout << sn << "," << bucket;
+            double weighted_sum = 0;
+            for (int i = 0; i < 4444; i++)
+            {
+                // std::cout << "," << hist[i] / pixel_count;
+                weighted_sum += hist[i] / pixel_count * i;
+            }
+            double var = 0.0;
+            for (size_t i = 0; i < 4444; ++i)
+            {
+                double d = i - weighted_sum;
+                var += d * d * hist[i] / pixel_count;
+            }
+            std::cout << "," << pixel_count << "," << weighted_sum << "," << sqrt(var) << std::endl;
+        }
+    }
+
     return face_projection_infos;
 }
 

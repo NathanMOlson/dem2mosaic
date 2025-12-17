@@ -83,6 +83,9 @@ ImageView::ImageView(std::size_t id, const Eigen::Vector3f &translation,
     cv::rotate(_weight_br, _weight_tl, cv::ROTATE_180);
     cv::rotate(_weight_br, _weight_tr, cv::ROTATE_90_COUNTERCLOCKWISE);
     cv::rotate(_weight_br, _weight_bl, cv::ROTATE_90_CLOCKWISE);
+
+    _serial_number = "001";
+
 }
 
 cv::Point2f ImageView::get_pixel_coords(Eigen::Vector3f const &vertex) const
@@ -244,7 +247,7 @@ void ImageView::release_image(void)
 }
 
 void ImageView::get_face_info(const std::vector<cv::Point2f> &corners,
-                              QuadInfo *face_info) const
+                              QuadInfo *face_info, std::vector<int> *histogram) const
 {
     assert(!image.empty());
     face_info->fully_visible = false;
@@ -281,6 +284,16 @@ void ImageView::get_face_info(const std::vector<cv::Point2f> &corners,
         face_info->tr_w = 1;
         face_info->br_w = 1;
         face_info->bl_w = 1;
+        if (histogram != nullptr && histogram->size() == 65536)
+        {
+            for (int i = 0; i < tile.rows; i++)
+            {
+                for (int j = 0; j < tile.cols; j++)
+                {
+                    (*histogram)[tile_f.at<float>(i,j)]++;
+                }
+            }
+        }
     }
     else
     {
@@ -322,6 +335,10 @@ void ImageView::get_face_info(const std::vector<cv::Point2f> &corners,
 double ImageView::get_capture_time() const
 {
     return _capture_time;
+}
+std::string ImageView::get_serial_number() const
+{
+    return _serial_number;
 }
 
 std::shared_ptr<Undistorter> create_undistorter_brown(const json &cam)

@@ -43,6 +43,7 @@ private:
     std::string image_file;
     double _capture_time;
     cv::Mat image;
+    std::string _serial_number;
 
     cv::Mat _weight_tl;
     cv::Mat _weight_tr;
@@ -101,9 +102,10 @@ public:
     void release_image(void);
 
     void get_face_info(const std::vector<cv::Point2f> &corners,
-                       QuadInfo *face_info) const;
+                       QuadInfo *face_info, std::vector<int>* histogram) const;
 
     double get_capture_time() const;
+    std::string get_serial_number() const;
 };
 
 std::vector<ImageView> generate_image_views(const std::filesystem::path &json_file);
