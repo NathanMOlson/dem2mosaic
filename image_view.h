@@ -22,6 +22,7 @@ struct QuadInfo
     float tr_w;
     float br_w;
     float bl_w;
+    float d;
 
     bool operator<(QuadInfo const &other) const
     {

@@ -243,8 +243,8 @@ std::vector<std::vector<QuadInfo>> calculate_face_projection_infos(const QuadMes
                     Eigen::Vector3f up(0, 0, 1);
 
                     /* Backface and basic frustum culling */
-                    float viewing_angle = face_to_view_vec.dot(face_normal);
-                    if (viewing_angle < 0.0f || viewing_direction.dot(view_to_face_vec) < 0.0f)
+                    float cos_viewing_angle = face_to_view_vec.dot(face_normal);
+                    if (cos_viewing_angle < 0.0f || viewing_direction.dot(view_to_face_vec) < 0.0f)
                         continue;
 
                     /* Projects into the valid part of the ImageView? */
@@ -265,7 +265,7 @@ std::vector<std::vector<QuadInfo>> calculate_face_projection_infos(const QuadMes
                     QuadInfo info;
                     info.view_id = k;
 
-                    float distance = (corner_points[0] + corner_points[1] + corner_points[2] + corner_points[3]).norm() / 4;
+                    float distance = (face_center - view_pos).norm();
                     int distance_bucket = round(2.f * std::log2f(distance));
                     if (histograms.count(sn) == 0)
                     {
@@ -277,6 +277,8 @@ std::vector<std::vector<QuadInfo>> calculate_face_projection_infos(const QuadMes
                     }
 
                     image_view.get_face_info(corner_pixels, &info, &histograms[sn][distance_bucket]);
+
+                    info.d = distance_bucket;
 
                     if (info.quality <= 0.0)
                         continue;
@@ -475,6 +477,29 @@ float calculate_difference(const std::vector<std::vector<QuadInfo>> &quad_infos,
     assert(n1 > 0 && n2 > 0);
 
     return m2 / n2 - m1 / n1;
+}
+
+cv::Mat get_distance_map(const cv::Mat &labels, const std::vector<std::vector<QuadInfo>> &quad_infos)
+{
+    cv::Mat d = cv::Mat::zeros(labels.rows, labels.cols, CV_8U);
+    for (int i = 0; i < labels.rows; i++)
+    {
+        for (int j = 0; j < labels.cols; j++)
+        {
+            int index = i * labels.cols + j;
+            uint16_t label = labels.at<uint16_t>(i, j);
+
+            for (const QuadInfo &quad_info : quad_infos[index])
+            {
+                if (quad_info.view_id == label - 1)
+                {
+                    d.at<uint8_t>(i,j) = quad_info.d;
+                    break;
+                }
+            }
+        }
+    }
+    return d;
 }
 
 cv::Mat global_seam_leveling(const cv::Mat &labels, const std::vector<std::vector<QuadInfo>> &quad_infos)
@@ -879,6 +904,10 @@ int main(int argc, char **argv)
                 img = adjustments + 128;
                 img.convertTo(img, CV_8U);
                 std::filesystem::path filepath = out_dir / "adjustments.png";
+                cv::imwrite(filepath, img);
+
+                img = get_distance_map(labels, quad_infos);
+                filepath = out_dir / "distance.png";
                 cv::imwrite(filepath, img);
             }
 
