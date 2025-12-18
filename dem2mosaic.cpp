@@ -510,7 +510,7 @@ float calculate_difference(const std::vector<std::vector<QuadInfo>> &quad_infos,
     return m2 / n2 - m1 / n1;
 }
 
-cv::Mat global_seam_leveling(const cv::Mat &labels, const std::vector<std::vector<QuadInfo>> &quad_infos)
+cv::Mat global_seam_leveling(const cv::Mat &labels, const std::vector<std::vector<QuadInfo>> &quad_infos, const cv::Mat &existing_adjustments)
 {
     cv::Mat index_image = -cv::Mat::ones(labels.rows * 2, labels.cols * 2, CV_32S);
     int next_index = 0;
@@ -642,6 +642,7 @@ cv::Mat global_seam_leveling(const cv::Mat &labels, const std::vector<std::vecto
         {
             std::vector<uint16_t> tile_labels;
             std::vector<int32_t> vertex_indices;
+            std::vector<cv::Point2i> adjustment_points;
 
             if (i > 0 && j > 0)
             {
@@ -650,6 +651,7 @@ cv::Mat global_seam_leveling(const cv::Mat &labels, const std::vector<std::vecto
                 {
                     tile_labels.push_back(label);
                     vertex_indices.push_back(index_image.at<int32_t>(2 * i - 1, 2 * j - 1));
+                    adjustment_points.push_back(cv::Point2i(2 * j - 1, 2 * i - 1));
                 }
             }
             if (i > 0 && j < labels.cols)
@@ -659,6 +661,7 @@ cv::Mat global_seam_leveling(const cv::Mat &labels, const std::vector<std::vecto
                 {
                     tile_labels.push_back(label);
                     vertex_indices.push_back(index_image.at<int32_t>(2 * i - 1, 2 * j));
+                    adjustment_points.push_back(cv::Point2i(2 * j, 2 * i - 1));
                 }
             }
             if (i < labels.rows && j > 0)
@@ -668,6 +671,7 @@ cv::Mat global_seam_leveling(const cv::Mat &labels, const std::vector<std::vecto
                 {
                     tile_labels.push_back(label);
                     vertex_indices.push_back(index_image.at<int32_t>(2 * i, 2 * j - 1));
+                    adjustment_points.push_back(cv::Point2i(2 * j - 1, 2 * i));
                 }
             }
             if (i < labels.rows && j < labels.cols)
@@ -677,6 +681,7 @@ cv::Mat global_seam_leveling(const cv::Mat &labels, const std::vector<std::vecto
                 {
                     tile_labels.push_back(label);
                     vertex_indices.push_back(index_image.at<int32_t>(2 * i, 2 * j));
+                    adjustment_points.push_back(cv::Point2i(2 * j, 2 * i));
                 }
             }
 
@@ -687,6 +692,7 @@ cv::Mat global_seam_leveling(const cv::Mat &labels, const std::vector<std::vecto
                     coefficients_A.push_back(SpCoeff(row, vertex_indices[i1], 1));
                     coefficients_A.push_back(SpCoeff(row, vertex_indices[i2], -1));
                     coefficients_b.push_back(calculate_difference(quad_infos, labels.size(), i, j, tile_labels[i1], tile_labels[i2]));
+                    coefficients_b.back() += existing_adjustments.at<float>(adjustment_points[i2]) - existing_adjustments.at<float>(adjustment_points[i1]);
                     row++;
                 }
             }
@@ -904,7 +910,17 @@ int main(int argc, char **argv)
         try
         {
             labels = view_selection(data_costs, mesh, tile_cost, pairwise_cost, n_views);
-            adjustments = global_seam_leveling(labels, quad_infos);
+            adjustments = angular_temperature_compensation(labels, mesh, image_views, temp_comp_per_view);
+
+            if (write_intermediate_results)
+            {
+                cv::Mat img;
+                img = temperature_adjustments + 64;
+                img.convertTo(img, CV_8U);
+                std::filesystem::path filepath = out_dir / "angular.png";
+                cv::imwrite(filepath, img);
+            }
+            adjustments = adjustments + global_seam_leveling(labels, quad_infos, temperature_adjustments);
 
             if (write_intermediate_results)
             {
