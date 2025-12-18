@@ -8,10 +8,10 @@
 struct SeamPointers
 {
     float *out;
-    float *t;
-    float *r;
-    float *b;
-    float *l;
+    const float *t;
+    const float *r;
+    const float *b;
+    const float *l;
     float v;
     float c0;
 };
@@ -156,7 +156,7 @@ cv::Mat local_seam_leveling(const cv::Mat &labels, const cv::Mat mosaic)
 
     std::vector<SeamPointers> pointers(coeffs.size());
     int m = 0;
-    float zero = 0;
+    constexpr float zero = 0;
 
     for (auto [k, c] : coeffs)
     {
