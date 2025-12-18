@@ -3,6 +3,7 @@
 #include <iostream>
 #include <chrono>
 #include <map>
+#include <opencv2/imgproc.hpp>
 
 cv::Mat local_seam_leveling(const cv::Mat &labels, const cv::Mat mosaic)
 {
@@ -134,21 +135,16 @@ cv::Mat local_seam_leveling(const cv::Mat &labels, const cv::Mat mosaic)
     }
 
     cv::Mat adjustments = cv::Mat::zeros(mosaic.rows, mosaic.cols, CV_32F);
+    cv::Mat poisson_kernel = cv::Mat::zeros(3, 3, CV_32F);
+    poisson_kernel.at<float>(0, 1) = 0.25;
+    poisson_kernel.at<float>(1, 0) = 0.25;
+    poisson_kernel.at<float>(1, 2) = 0.25;
+    poisson_kernel.at<float>(2, 1) = 0.25;
 
+    cv::Mat tmp = cv::Mat(adjustments.rows, adjustments.cols, CV_32F);
     for (int n = 0; n < 64; n++)
     {
-        cv::Mat tmp = cv::Mat::zeros(adjustments.rows, adjustments.cols, CV_32F);
-        for (int i = 1; i < adjustments.rows - 1; i++)
-        {
-            for (int j = 1; j < adjustments.cols - 1; j++)
-            {
-                tmp.at<float>(i, j) = (adjustments.at<float>(i - 1, j) +
-                                       adjustments.at<float>(i, j + 1) +
-                                       adjustments.at<float>(i + 1, j) +
-                                       adjustments.at<float>(i, j - 1)) /
-                                      4.F;
-            }
-        }
+        cv::filter2D(adjustments, tmp, CV_32F, poisson_kernel);
         for (auto [k, c] : coeffs)
         {
             int i = k / adjustments.cols;
@@ -160,7 +156,7 @@ cv::Mat local_seam_leveling(const cv::Mat &labels, const cv::Mat mosaic)
                                    c[5]) /
                                   c[0];
         }
-        adjustments = tmp;
+        adjustments = tmp.clone();
     }
     auto t2 = std::chrono::steady_clock::now();
 
