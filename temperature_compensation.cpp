@@ -28,12 +28,21 @@ cv::Mat angular_temperature_compensation(const cv::Mat &labels, const QuadMesh &
                     corner_points.push_back(mesh.GetVertex(i + 1, j));
 
                     std::vector<float> cos_viewing_angle(4);
+#if USE_LOCAL_NORMAL
                     for (size_t i = 0; i < 4; i++)
                     {
                         Eigen::Vector3f corner_normal = (corner_points[(i + 1) % 4] - corner_points[i]).cross((corner_points[i] - corner_points[(i + 3) % 4])).normalized();
                         Eigen::Vector3f corner_to_view_vec = (view_pos - corner_points[i]).normalized();
                         cos_viewing_angle[i] = corner_to_view_vec.dot(corner_normal.normalized());
                     }
+#else
+                    Eigen::Vector3f up(0, 0, 1);
+                    for (size_t i = 0; i < 4; i++)
+                    {
+                        Eigen::Vector3f corner_to_view_vec = (view_pos - corner_points[i]).normalized();
+                        cos_viewing_angle[i] = corner_to_view_vec.dot(up);
+                    }
+#endif
 
                     adjustment.at<float>(2 * i, 2 * j) = get_temperature_adjustment(comp[k], cos_viewing_angle[0]);
                     adjustment.at<float>(2 * i, 2 * j + 1) = get_temperature_adjustment(comp[k], cos_viewing_angle[1]);

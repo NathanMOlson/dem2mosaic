@@ -300,15 +300,21 @@ std::vector<std::vector<QuadInfo>> calculate_face_projection_infos(const QuadMes
                     if (info.quality <= 0.0)
                         continue;
 
+#if USE_LOCAL_NORMAL
+                    float cos_incidence = cos_viewing_angle;
+#else
+                    float cos_incidence = face_to_view_vec.dot(Eigen::Vector3f(0, 0, 1));
+#endif
+
                     float temp_weight = info.tl_w + info.tr_w + info.br_w + info.bl_w;
                     if (temp_weight > 0)
                     {
                         float temp = (info.tl + info.tr + info.br + info.bl) / temp_weight;
 
-                        double k = 1.0 - cos_viewing_angle;
+                        double k = 1.0 - cos_incidence;
                         k = k * k;
                         k = k * k; // (1-cos)^4
-                        double w = cos_viewing_angle;
+                        double w = cos_incidence;
 
                         Eigen::VectorXd A = Eigen::VectorXd::Zero(num_cameras + 1);
                         A[camera_id] = w;
@@ -343,7 +349,7 @@ std::vector<std::vector<QuadInfo>> calculate_face_projection_infos(const QuadMes
         }
     }
     Eigen::VectorXd x = AA_overall.ldlt().solve(Ab_overall);
-    std::cout << "Temperatuer Compensation Solution:" << std::endl;
+    std::cout << "Temperature Compensation Solution:" << std::endl;
     double mean_temp = x.head(num_cameras).mean();
     for (const auto &[sn, id] : camera_ids)
     {
