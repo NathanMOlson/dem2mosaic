@@ -13,6 +13,7 @@
 #include "quadmesh.h"
 #include "image_view.h"
 #include "sparse_table.h"
+#include "temperature_compensation.h"
 #include "save_geotiff.h"
 #include "proj_info.h"
 
@@ -178,7 +179,8 @@ cv::Mat view_selection(DataCosts const &data_costs, const QuadMesh &mesh,
 }
 
 std::vector<std::vector<QuadInfo>> calculate_face_projection_infos(const QuadMesh &mesh,
-                                                                   const std::vector<ImageView> &image_views)
+                                                                   const std::vector<ImageView> &image_views,
+                                                                   std::vector<TemperatureCompensation *> &temp_comp_per_view)
 {
     std::vector<std::vector<QuadInfo>> face_projection_infos(mesh.NumFaces());
     // std::vector<unsigned int> const & faces = mesh.get_faces();
@@ -186,6 +188,7 @@ std::vector<std::vector<QuadInfo>> calculate_face_projection_infos(const QuadMes
     // mve::TriangleMesh::NormalList const & face_normals = mesh.get_face_normals();
 
     std::size_t const num_views = image_views.size();
+    temp_comp_per_view.resize(num_views);
 
     // std::cout << "\tBuilding BVH from " << mesh.NumFaces() << " faces... " << std::flush;
     // BVHTree bvh_tree(faces, vertices);
@@ -205,6 +208,11 @@ std::vector<std::vector<QuadInfo>> calculate_face_projection_infos(const QuadMes
         }
     }
     const size_t num_cameras = camera_ids.size();
+    std::vector<TemperatureCompensation *> temp_comps(num_cameras);
+    for (auto &temp_comp : temp_comps)
+    {
+        temp_comp = new TemperatureCompensation;
+    }
 
     Eigen::VectorXd Ab_overall = Eigen::VectorXd::Zero(num_cameras + 1);
     Eigen::MatrixXd AA_overall = Eigen::MatrixXd::Zero(num_cameras + 1, num_cameras + 1);
@@ -227,6 +235,7 @@ std::vector<std::vector<QuadInfo>> calculate_face_projection_infos(const QuadMes
             ImageView image_view = image_views.at(k);
             std::string sn = image_view.get_serial_number();
             int camera_id = camera_ids[sn];
+            temp_comp_per_view[k] = temp_comps[camera_id];
 
             image_view.load_image();
             if (!image_view.IsImageLoaded())
@@ -334,11 +343,13 @@ std::vector<std::vector<QuadInfo>> calculate_face_projection_infos(const QuadMes
         }
     }
     Eigen::VectorXd x = AA_overall.ldlt().solve(Ab_overall);
-    std::cout << "Solution:" << x << std::endl;
+    std::cout << "Temperatuer Compensation Solution:" << std::endl;
     double mean_temp = x.head(num_cameras).mean();
     for (const auto &[sn, id] : camera_ids)
     {
         std::cout << sn << ": " << mean_temp - x[id] << ", " << x[num_cameras] << std::endl;
+        temp_comps[id]->offset = x[id] - mean_temp;
+        temp_comps[id]->b = x[num_cameras];
     }
 
     return face_projection_infos;
@@ -850,8 +861,8 @@ int main(int argc, char **argv)
     if (labeling_file.empty())
     {
         std::cout << "View selection:" << std::endl;
-
-        quad_infos = calculate_face_projection_infos(mesh, image_views);
+        std::vector<TemperatureCompensation *> temp_comp_per_view;
+        quad_infos = calculate_face_projection_infos(mesh, image_views, temp_comp_per_view);
         DataCosts data_costs = calculate_data_costs(mesh, quad_infos);
 
         size_t n_views = image_views.size();
