@@ -15,7 +15,7 @@ std::vector<uint8_t> extract_jxl_box(const std::filesystem::path &filepath, cons
 
     std::ifstream file(filepath, std::ios::binary);
     std::vector<uint8_t> jxl = std::vector<uint8_t>(std::istreambuf_iterator<char>(file),
-                                std::istreambuf_iterator<char>());
+                                                    std::istreambuf_iterator<char>());
 
     // We're only interested in the Exif boxes in this example, so don't
     // subscribe to events related to pixel data.
@@ -376,7 +376,7 @@ void ImageView::release_image(void)
 }
 
 void ImageView::get_face_info(const std::vector<cv::Point2f> &corners,
-                              QuadInfo *face_info, std::vector<int> *histogram) const
+                              QuadInfo *face_info) const
 {
     assert(!image.empty());
     face_info->fully_visible = false;
@@ -419,16 +419,6 @@ void ImageView::get_face_info(const std::vector<cv::Point2f> &corners,
         face_info->tr_w = 1;
         face_info->br_w = 1;
         face_info->bl_w = 1;
-        if (histogram != nullptr && histogram->size() == 65536)
-        {
-            for (int i = 0; i < tile.rows; i++)
-            {
-                for (int j = 0; j < tile.cols; j++)
-                {
-                    (*histogram)[tile_f.at<float>(i, j)]++;
-                }
-            }
-        }
     }
     else
     {
@@ -463,13 +453,6 @@ void ImageView::get_face_info(const std::vector<cv::Point2f> &corners,
     cv::multiply(grad_y, grad_y, grad_y);
     // cv::sqrt(grad_x + grad_y, grad_x);
     gmi = cv::mean(1 - 1 / ((grad_x + grad_y) / 32 + 1))[0];
-
-    static float max_gmi = 0;
-    if (gmi > max_gmi)
-    {
-        max_gmi = gmi;
-        // std::cout<< "New max GMI: "<<max_gmi<<" area: "<<area<<std::endl;
-    }
 
     face_info->quality = gmi * area / tile.rows / tile.cols;
 }

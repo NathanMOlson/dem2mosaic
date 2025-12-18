@@ -22,7 +22,6 @@ struct QuadInfo
     float tr_w;
     float br_w;
     float bl_w;
-    float d;
 
     bool operator<(QuadInfo const &other) const
     {
@@ -103,7 +102,7 @@ public:
     void release_image(void);
 
     void get_face_info(const std::vector<cv::Point2f> &corners,
-                       QuadInfo *face_info, std::vector<int>* histogram) const;
+                       QuadInfo *face_info) const;
 
     double get_capture_time() const;
     std::string get_serial_number() const;

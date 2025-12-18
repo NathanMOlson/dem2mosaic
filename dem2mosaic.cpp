@@ -187,15 +187,34 @@ std::vector<std::vector<QuadInfo>> calculate_face_projection_infos(const QuadMes
 
     std::size_t const num_views = image_views.size();
 
-    std::map<std::string, std::map<int, std::vector<int>>> histograms;
-
     // std::cout << "\tBuilding BVH from " << mesh.NumFaces() << " faces... " << std::flush;
     // BVHTree bvh_tree(faces, vertices);
     // std::cout << "done. (Took: " << timer.get_elapsed() << " ms)" << std::endl;
 
+    int next_camera_id = 0;
+    std::map<std::string, int> camera_ids;
+
+    for (size_t k = 0; k < num_views; ++k)
+    {
+        ImageView image_view = image_views.at(k);
+        std::string sn = image_view.get_serial_number();
+        if (camera_ids.count(sn) == 0)
+        {
+            camera_ids[sn] = next_camera_id;
+            next_camera_id++;
+        }
+    }
+    const size_t num_cameras = camera_ids.size();
+
+    Eigen::VectorXd Ab_overall = Eigen::VectorXd::Zero(num_cameras + 1);
+    Eigen::MatrixXd AA_overall = Eigen::MatrixXd::Zero(num_cameras + 1, num_cameras + 1);
+
 #pragma omp parallel
     {
         std::vector<std::pair<std::size_t, QuadInfo>> projected_face_view_infos;
+
+        Eigen::VectorXd Ab = Eigen::VectorXd::Zero(num_cameras + 1);
+        Eigen::MatrixXd AA = Eigen::MatrixXd::Zero(num_cameras + 1, num_cameras + 1);
 
 #pragma omp for schedule(dynamic)
 #if !defined(_MSC_VER)
@@ -207,6 +226,8 @@ std::vector<std::vector<QuadInfo>> calculate_face_projection_infos(const QuadMes
 #endif
             ImageView image_view = image_views.at(k);
             std::string sn = image_view.get_serial_number();
+            int camera_id = camera_ids[sn];
+
             image_view.load_image();
             if (!image_view.IsImageLoaded())
             {
@@ -243,7 +264,7 @@ std::vector<std::vector<QuadInfo>> calculate_face_projection_infos(const QuadMes
                     Eigen::Vector3f up(0, 0, 1);
 
                     /* Backface and basic frustum culling */
-                    float cos_viewing_angle = face_to_view_vec.dot(face_normal);
+                    float cos_viewing_angle = face_to_view_vec.dot(face_normal.normalized());
                     if (cos_viewing_angle < 0.0f || viewing_direction.dot(view_to_face_vec) < 0.0f)
                         continue;
 
@@ -265,23 +286,29 @@ std::vector<std::vector<QuadInfo>> calculate_face_projection_infos(const QuadMes
                     QuadInfo info;
                     info.view_id = k;
 
-                    float distance = (face_center - view_pos).norm();
-                    int distance_bucket = round(2.f * std::log2f(distance));
-                    if (histograms.count(sn) == 0)
-                    {
-                        histograms[sn] = std::map<int, std::vector<int>>();
-                    }
-                    if (histograms[sn].count(distance_bucket) == 0)
-                    {
-                        histograms[sn][distance_bucket] = std::vector(65536, 0);
-                    }
-
-                    image_view.get_face_info(corner_pixels, &info, &histograms[sn][distance_bucket]);
-
-                    info.d = distance_bucket;
+                    image_view.get_face_info(corner_pixels, &info);
 
                     if (info.quality <= 0.0)
                         continue;
+
+                    float temp_weight = info.tl_w + info.tr_w + info.br_w + info.bl_w;
+                    if (temp_weight > 0)
+                    {
+                        float temp = (info.tl + info.tr + info.br + info.bl) / temp_weight;
+
+                        double k = 1.0 - cos_viewing_angle;
+                        k = k * k;
+                        k = k * k; // (1-cos)^4
+                        double w = cos_viewing_angle;
+
+                        Eigen::VectorXd A = Eigen::VectorXd::Zero(num_cameras + 1);
+                        A[camera_id] = w;
+                        A[num_cameras] = w * k;
+                        double b = w * temp;
+
+                        AA += A * A.transpose();
+                        Ab += A * b;
+                    }
 
                     std::pair<std::size_t, QuadInfo> pair(face_id, info);
                     projected_face_view_infos.push_back(pair);
@@ -302,29 +329,16 @@ std::vector<std::vector<QuadInfo>> calculate_face_projection_infos(const QuadMes
                 face_projection_infos.at(face_id).push_back(info);
             }
             projected_face_view_infos.clear();
+            AA_overall += AA;
+            Ab_overall += Ab;
         }
     }
-
-    for (const auto &[sn, hists] : histograms)
+    Eigen::VectorXd x = AA_overall.ldlt().solve(Ab_overall);
+    std::cout << "Solution:" << x << std::endl;
+    double mean_temp = x.head(num_cameras).mean();
+    for (const auto &[sn, id] : camera_ids)
     {
-        for (const auto &[bucket, hist] : hists)
-        {
-            double pixel_count = std::reduce(hist.begin(), hist.end());
-            std::cout << sn << "," << bucket;
-            double weighted_sum = 0;
-            for (int i = 0; i < 4444; i++)
-            {
-                // std::cout << "," << hist[i] / pixel_count;
-                weighted_sum += hist[i] / pixel_count * i;
-            }
-            double var = 0.0;
-            for (size_t i = 0; i < 4444; ++i)
-            {
-                double d = i - weighted_sum;
-                var += d * d * hist[i] / pixel_count;
-            }
-            std::cout << "," << pixel_count << "," << weighted_sum << "," << sqrt(var) << std::endl;
-        }
+        std::cout << sn << ": " << mean_temp - x[id] << ", " << x[num_cameras] << std::endl;
     }
 
     return face_projection_infos;
@@ -477,29 +491,6 @@ float calculate_difference(const std::vector<std::vector<QuadInfo>> &quad_infos,
     assert(n1 > 0 && n2 > 0);
 
     return m2 / n2 - m1 / n1;
-}
-
-cv::Mat get_distance_map(const cv::Mat &labels, const std::vector<std::vector<QuadInfo>> &quad_infos)
-{
-    cv::Mat d = cv::Mat::zeros(labels.rows, labels.cols, CV_8U);
-    for (int i = 0; i < labels.rows; i++)
-    {
-        for (int j = 0; j < labels.cols; j++)
-        {
-            int index = i * labels.cols + j;
-            uint16_t label = labels.at<uint16_t>(i, j);
-
-            for (const QuadInfo &quad_info : quad_infos[index])
-            {
-                if (quad_info.view_id == label - 1)
-                {
-                    d.at<uint8_t>(i,j) = quad_info.d;
-                    break;
-                }
-            }
-        }
-    }
-    return d;
 }
 
 cv::Mat global_seam_leveling(const cv::Mat &labels, const std::vector<std::vector<QuadInfo>> &quad_infos)
@@ -904,10 +895,6 @@ int main(int argc, char **argv)
                 img = adjustments + 128;
                 img.convertTo(img, CV_8U);
                 std::filesystem::path filepath = out_dir / "adjustments.png";
-                cv::imwrite(filepath, img);
-
-                img = get_distance_map(labels, quad_infos);
-                filepath = out_dir / "distance.png";
                 cv::imwrite(filepath, img);
             }
 
