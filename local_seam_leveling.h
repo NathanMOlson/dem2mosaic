@@ -3,6 +3,6 @@
 
 #include <opencv2/core.hpp>
 
-cv::Mat local_seam_leveling(const cv::Mat &labels, const cv::Mat mosaic, size_t tile_width);
+cv::Mat local_seam_leveling(const cv::Mat &labels, const cv::Mat mosaic);
 
 #endif

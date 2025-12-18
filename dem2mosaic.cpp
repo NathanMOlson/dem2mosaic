@@ -977,19 +977,21 @@ int main(int argc, char **argv)
     geo.gdal_nodata_value = 0;
     geo.capture_time_utc = get_mean_time(image_views);
 
-    std::cout << "Creating mosaic" << std::endl;
     cv::Mat mosaic = create_mosaic(image_views, mesh, labels, adjustments);
+
+    std::cout << "Local seam leveling" << std::endl;
+    cv::Mat local_adjustments = local_seam_leveling(labels, mosaic);
+    cv::add(mosaic, local_adjustments, mosaic, cv::noArray(), CV_16U);
 
     if (write_intermediate_results)
     {
-        std::cout << "Local seam leveling" << std::endl;
-        cv::Mat local_adjustments = local_seam_leveling(labels, mosaic, tile_width);
         cv::Mat img;
         cv::normalize(local_adjustments, img, 255, 0, cv::NORM_MINMAX, CV_8U);
         std::filesystem::path filepath = out_dir / "local_leveling.png";
         cv::imwrite(filepath, img);
     }
 
+    std::cout << "Saving mosaic as geotiff" << std::endl;
     std::filesystem::path filepath = out_dir / "mosaic.tiff";
     save_geotiff(filepath, mosaic, geo);
 
