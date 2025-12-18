@@ -5,6 +5,17 @@
 #include <map>
 #include <opencv2/imgproc.hpp>
 
+struct SeamPointers
+{
+    float *out;
+    float *t;
+    float *r;
+    float *b;
+    float *l;
+    float v;
+    float c0;
+};
+
 cv::Mat local_seam_leveling(const cv::Mat &labels, const cv::Mat mosaic)
 {
     auto t1 = std::chrono::steady_clock::now();
@@ -142,21 +153,34 @@ cv::Mat local_seam_leveling(const cv::Mat &labels, const cv::Mat mosaic)
     poisson_kernel.at<float>(2, 1) = 0.25;
 
     cv::Mat tmp = cv::Mat(adjustments.rows, adjustments.cols, CV_32F);
+
+    std::vector<SeamPointers> pointers(coeffs.size());
+    int m = 0;
+    float zero = 0;
+
+    for (auto [k, c] : coeffs)
+    {
+        int i = k / adjustments.cols;
+        int j = k % adjustments.cols;
+        pointers[m].out = &tmp.at<float>(i, j);
+        pointers[m].t = (c[1] == 1) ? &adjustments.at<float>(i - 1, j) : &zero;
+        pointers[m].r = (c[2] == 1) ? &adjustments.at<float>(i, j + 1) : &zero;
+        pointers[m].b = (c[3] == 1) ? &adjustments.at<float>(i + 1, j) : &zero;
+        pointers[m].l = (c[4] == 1) ? &adjustments.at<float>(i, j - 1) : &zero;
+        pointers[m].v = c[5];
+        pointers[m].c0 = c[0];
+        m++;
+    }
+    coeffs.clear();
+
     for (int n = 0; n < 64; n++)
     {
         cv::filter2D(adjustments, tmp, CV_32F, poisson_kernel);
-        for (auto [k, c] : coeffs)
+        for (const auto &p : pointers)
         {
-            int i = k / adjustments.cols;
-            int j = k % adjustments.cols;
-            tmp.at<float>(i, j) = (c[1] * adjustments.at<float>((i + adjustments.rows - 1) % adjustments.rows, j) +
-                                   c[2] * adjustments.at<float>(i, (j + 1) % adjustments.cols) +
-                                   c[3] * adjustments.at<float>((i + 1) % adjustments.rows, j) +
-                                   c[4] * adjustments.at<float>(i, (j + adjustments.cols - 1) % adjustments.cols) +
-                                   c[5]) /
-                                  c[0];
+            *p.out = (*p.t + *p.r + *p.b + *p.l + p.v) / p.c0;
         }
-        adjustments = tmp.clone();
+        tmp.copyTo(adjustments);
     }
     auto t2 = std::chrono::steady_clock::now();
 
