@@ -915,12 +915,12 @@ int main(int argc, char **argv)
             if (write_intermediate_results)
             {
                 cv::Mat img;
-                img = temperature_adjustments + 64;
+                img = adjustments + 64;
                 img.convertTo(img, CV_8U);
                 std::filesystem::path filepath = out_dir / "angular.png";
                 cv::imwrite(filepath, img);
             }
-            adjustments = adjustments + global_seam_leveling(labels, quad_infos, temperature_adjustments);
+            adjustments = adjustments + global_seam_leveling(labels, quad_infos, adjustments);
 
             if (write_intermediate_results)
             {
