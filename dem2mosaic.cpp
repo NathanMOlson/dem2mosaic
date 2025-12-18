@@ -14,6 +14,7 @@
 #include "image_view.h"
 #include "sparse_table.h"
 #include "temperature_compensation.h"
+#include "local_seam_leveling.h"
 #include "save_geotiff.h"
 #include "proj_info.h"
 
@@ -872,9 +873,10 @@ int main(int argc, char **argv)
 
     if (labeling_file.empty())
     {
-        std::cout << "View selection:" << std::endl;
         std::vector<TemperatureCompensation *> temp_comp_per_view;
+        std::cout << "Calculating Face Info" << std::endl;
         quad_infos = calculate_face_projection_infos(mesh, image_views, temp_comp_per_view);
+        std::cout << "Calculationt Data Costs" << std::endl;
         DataCosts data_costs = calculate_data_costs(mesh, quad_infos);
 
         size_t n_views = image_views.size();
@@ -895,6 +897,7 @@ int main(int argc, char **argv)
         }
 
         cv::Mat tile_cost;
+        std::cout << "Finding best local labels" << std::endl;
         labels = best_local_labels(quad_infos, mesh, tile_cost);
         if (write_intermediate_results)
         {
@@ -909,7 +912,9 @@ int main(int argc, char **argv)
 
         try
         {
+            std::cout << "View selection" << std::endl;
             labels = view_selection(data_costs, mesh, tile_cost, pairwise_cost, n_views);
+            std::cout << "Temperature Compensation" << std::endl;
             adjustments = angular_temperature_compensation(labels, mesh, image_views, temp_comp_per_view);
 
             if (write_intermediate_results)
@@ -972,7 +977,19 @@ int main(int argc, char **argv)
     geo.gdal_nodata_value = 0;
     geo.capture_time_utc = get_mean_time(image_views);
 
+    std::cout << "Creating mosaic" << std::endl;
     cv::Mat mosaic = create_mosaic(image_views, mesh, labels, adjustments);
+
+    if (write_intermediate_results)
+    {
+        std::cout << "Local seam leveling" << std::endl;
+        cv::Mat local_adjustments = local_seam_leveling(labels, mosaic, tile_width);
+        cv::Mat img;
+        cv::normalize(local_adjustments, img, 255, 0, cv::NORM_MINMAX, CV_8U);
+        std::filesystem::path filepath = out_dir / "local_leveling.png";
+        cv::imwrite(filepath, img);
+    }
+
     std::filesystem::path filepath = out_dir / "mosaic.tiff";
     save_geotiff(filepath, mosaic, geo);
 

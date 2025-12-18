@@ -35,7 +35,7 @@ include_directories(SYSTEM
     ${CMAKE_SOURCE_DIR}/elibs/mapmap/ext/dset
 )
 
-add_executable(dem2mosaic dem2mosaic.cpp quadmesh.cpp image_view.cpp undistorter.cpp save_geotiff.cpp proj_info.cpp temperature_compensation.cpp)
+add_executable(dem2mosaic dem2mosaic.cpp quadmesh.cpp image_view.cpp undistorter.cpp save_geotiff.cpp proj_info.cpp temperature_compensation.cpp local_seam_leveling.cpp)
 target_compile_options(dem2mosaic PUBLIC -Wall -Wextra -Werror)
 add_dependencies(dem2mosaic ext_mapmap)
 set_property(TARGET dem2mosaic PROPERTY INTERPROCEDURAL_OPTIMIZATION True)
