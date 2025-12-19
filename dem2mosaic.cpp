@@ -789,6 +789,7 @@ cv::Mat create_mosaic(std::vector<ImageView> &image_views, const QuadMesh &mesh,
     for (size_t k = 0; k < image_views.size(); k++)
     {
         image_views[k].load_image();
+#pragma omp parallel for schedule(dynamic)
         for (int i = 0; i < labels.rows; i++)
         {
             for (int j = 0; j < labels.cols; j++)
