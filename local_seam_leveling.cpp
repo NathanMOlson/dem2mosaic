@@ -152,8 +152,6 @@ cv::Mat local_seam_leveling(const cv::Mat &labels, const cv::Mat mosaic)
     poisson_kernel.at<float>(1, 2) = 0.25;
     poisson_kernel.at<float>(2, 1) = 0.25;
 
-    cv::Mat tmp = cv::Mat(adjustments.rows, adjustments.cols, CV_32F);
-
     std::vector<SeamPointers> pointers(coeffs.size());
     int m = 0;
     constexpr float zero = 0;
@@ -162,7 +160,7 @@ cv::Mat local_seam_leveling(const cv::Mat &labels, const cv::Mat mosaic)
     {
         int i = k / adjustments.cols;
         int j = k % adjustments.cols;
-        pointers[m].out = &tmp.at<float>(i, j);
+        pointers[m].out = &adjustments.at<float>(i, j);
         pointers[m].t = (c[1] == 1) ? &adjustments.at<float>(i - 1, j) : &zero;
         pointers[m].r = (c[2] == 1) ? &adjustments.at<float>(i, j + 1) : &zero;
         pointers[m].b = (c[3] == 1) ? &adjustments.at<float>(i + 1, j) : &zero;
@@ -172,15 +170,21 @@ cv::Mat local_seam_leveling(const cv::Mat &labels, const cv::Mat mosaic)
         m++;
     }
     coeffs.clear();
+    
+    std::vector<float> out_vals(pointers.size());
 
     for (int n = 0; n < 64; n++)
     {
-        cv::filter2D(adjustments, tmp, CV_32F, poisson_kernel);
-        for (const auto &p : pointers)
+        for (size_t i = 0; i < pointers.size(); i++)
         {
-            *p.out = (*p.t + *p.r + *p.b + *p.l + p.v) / p.c0;
+            SeamPointers& p = pointers[i];
+            out_vals[i] = (*p.t + *p.r + *p.b + *p.l + p.v) / p.c0;
         }
-        tmp.copyTo(adjustments);
+        cv::filter2D(adjustments, adjustments, CV_32F, poisson_kernel);
+        for (size_t i = 0; i < pointers.size(); i++)
+        {
+            *pointers[i].out = out_vals[i];
+        }
     }
     auto t2 = std::chrono::steady_clock::now();
 
