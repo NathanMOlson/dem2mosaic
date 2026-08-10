@@ -650,7 +650,7 @@ cv::Mat global_seam_leveling(const cv::Mat &labels, const std::vector<std::vecto
 
     std::cout << "Set Gamma from triplets" << std::endl;
 
-    int num_channels = 3;
+    int num_channels = existing_adjustments.channels();
 
     std::vector<SpCoeff> coefficients_A;
     std::vector<std::vector<float>> coefficients_b(num_channels);
@@ -792,7 +792,7 @@ cv::Mat global_seam_leveling(const cv::Mat &labels, const std::vector<std::vecto
     return adjustments;
 }
 
-cv::Mat create_mosaic(std::vector<ImageView> &image_views, const QuadMesh &mesh, const cv::Mat &labels, const cv::Mat &adjustments)
+cv::Mat create_mosaic(std::vector<ImageView> &image_views, const QuadMesh &mesh, const cv::Mat &labels, const cv::Mat &adjustments, bool preserve_max)
 {
     constexpr size_t tile_width = 32;
 
@@ -835,7 +835,6 @@ cv::Mat create_mosaic(std::vector<ImageView> &image_views, const QuadMesh &mesh,
 
                     std::vector<cv::Point2f> corner_pixels = image_views[k].get_pixel_coords(corner_points);
 
-                    constexpr bool preserve_max = true;
                     cv::Mat tile = image_views[k].GetTile(corner_pixels, cv::INTER_LINEAR, cv::BORDER_CONSTANT, preserve_max);
 
                     std::vector<cv::Mat> channel_adjustments;
@@ -1037,7 +1036,7 @@ int main(int argc, char **argv)
     geo.capture_time_utc = get_mean_time(image_views);
 
     std::cout << "Creating mosaic" << std::endl;
-    cv::Mat mosaic = create_mosaic(image_views, mesh, labels, adjustments);
+    cv::Mat mosaic = create_mosaic(image_views, mesh, labels, adjustments, is_lwir);
     std::cout << "Created mosaic at: " << std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - t1).count() << std::endl;
 
     std::cout << "Local seam leveling" << std::endl;
@@ -1061,7 +1060,7 @@ int main(int argc, char **argv)
     if (write_intermediate_results)
     {
         adjustments = 0;
-        mosaic = create_mosaic(image_views, mesh, labels, adjustments);
+        mosaic = create_mosaic(image_views, mesh, labels, adjustments, is_lwir);
         std::filesystem::path filepath = out_dir / "mosaic_unadjusted.tiff";
         save_geotiff(filepath, mosaic, geo);
     }
