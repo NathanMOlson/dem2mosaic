@@ -169,8 +169,6 @@ cv::Mat local_seam_leveling(const cv::Mat &labels, const cv::Mat mosaic)
     int m = 0;
     constexpr float zero = 0;
 
-    std::cout << "Local leveling setting up coeffs" << std::endl;
-
     for (auto [k, c] : coeffs)
     {
         int i = k / (adjustments.cols * num_channels);
@@ -190,8 +188,6 @@ cv::Mat local_seam_leveling(const cv::Mat &labels, const cv::Mat mosaic)
 
     for (int n = 0; n < 64; n++)
     {
-        std::cout << "Local leveling iter: " << n << std::endl;
-
         for (size_t i = 0; i < pointers.size(); i++)
         {
             SeamPointers &p = pointers[i];

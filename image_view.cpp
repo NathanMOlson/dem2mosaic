@@ -469,10 +469,10 @@ void ImageView::get_face_info(const std::vector<cv::Point2f> &corners,
         cv::split(tile_f, tile_channels);
         for (const auto &tile_channel : tile_channels)
         {
-            face_info->tl.push_back(_weight_tl.dot(tile_channel));
-            face_info->tr.push_back(_weight_tr.dot(tile_channel));
-            face_info->br.push_back(_weight_br.dot(tile_channel));
-            face_info->bl.push_back(_weight_bl.dot(tile_channel));
+            face_info->tl.push_back(weight_tl.dot(tile_channel));
+            face_info->tr.push_back(weight_tr.dot(tile_channel));
+            face_info->br.push_back(weight_br.dot(tile_channel));
+            face_info->bl.push_back(weight_bl.dot(tile_channel));
         }
     }
 
