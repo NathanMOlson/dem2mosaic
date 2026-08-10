@@ -327,7 +327,7 @@ std::vector<std::vector<QuadInfo>> calculate_face_projection_infos(const QuadMes
                     float temp_weight = info.tl_w + info.tr_w + info.br_w + info.bl_w;
                     if (temp_weight > 0)
                     {
-                        float temp = (info.tl + info.tr + info.br + info.bl) / temp_weight;
+                        float temp = (info.tl[0] + info.tr[0] + info.br[0] + info.bl[0]) / temp_weight;
 
                         double k = 1.0 - cos_incidence;
                         k = k * k;
@@ -445,7 +445,7 @@ cv::Mat best_local_labels(const std::vector<std::vector<QuadInfo>> &quad_infos, 
     return labels;
 }
 
-float calculate_difference(const std::vector<std::vector<QuadInfo>> &quad_infos, cv::Size mesh_size, int row, int col, uint16_t label, uint16_t label2)
+float calculate_difference(const std::vector<std::vector<QuadInfo>> &quad_infos, cv::Size mesh_size, int row, int col, uint16_t label, uint16_t label2, int channel)
 {
     float n1 = 0;
     float n2 = 0;
@@ -459,12 +459,12 @@ float calculate_difference(const std::vector<std::vector<QuadInfo>> &quad_infos,
         {
             if (quad_info.view_id == label - 1)
             {
-                m1 += quad_info.br;
+                m1 += quad_info.br[channel];
                 n1 += quad_info.br_w;
             }
             else if (quad_info.view_id == label2 - 1)
             {
-                m2 += quad_info.br;
+                m2 += quad_info.br[channel];
                 n2 += quad_info.br_w;
             }
         }
@@ -477,12 +477,12 @@ float calculate_difference(const std::vector<std::vector<QuadInfo>> &quad_infos,
         {
             if (quad_info.view_id == label - 1)
             {
-                m1 += quad_info.bl;
+                m1 += quad_info.bl[channel];
                 n1 += quad_info.bl_w;
             }
             else if (quad_info.view_id == label2 - 1)
             {
-                m2 += quad_info.bl;
+                m2 += quad_info.bl[channel];
                 n2 += quad_info.bl_w;
             }
         }
@@ -495,12 +495,12 @@ float calculate_difference(const std::vector<std::vector<QuadInfo>> &quad_infos,
         {
             if (quad_info.view_id == label - 1)
             {
-                m1 += quad_info.tr;
+                m1 += quad_info.tr[channel];
                 n1 += quad_info.tr_w;
             }
             else if (quad_info.view_id == label2 - 1)
             {
-                m2 += quad_info.tr;
+                m2 += quad_info.tr[channel];
                 n2 += quad_info.tr_w;
             }
         }
@@ -513,12 +513,12 @@ float calculate_difference(const std::vector<std::vector<QuadInfo>> &quad_infos,
         {
             if (quad_info.view_id == label - 1)
             {
-                m1 += quad_info.tl;
+                m1 += quad_info.tl[channel];
                 n1 += quad_info.tl_w;
             }
             else if (quad_info.view_id == label2 - 1)
             {
-                m2 += quad_info.tl;
+                m2 += quad_info.tl[channel];
                 n2 += quad_info.tl_w;
             }
         }
@@ -650,8 +650,10 @@ cv::Mat global_seam_leveling(const cv::Mat &labels, const std::vector<std::vecto
 
     std::cout << "Set Gamma from triplets" << std::endl;
 
+    int num_channels = 3;
+
     std::vector<SpCoeff> coefficients_A;
-    std::vector<float> coefficients_b;
+    std::vector<std::vector<float>> coefficients_b(num_channels);
     row = 0;
 
     for (int i = 0; i <= labels.rows; i++)
@@ -709,8 +711,12 @@ cv::Mat global_seam_leveling(const cv::Mat &labels, const std::vector<std::vecto
                 {
                     coefficients_A.push_back(SpCoeff(row, vertex_indices[i1], 1));
                     coefficients_A.push_back(SpCoeff(row, vertex_indices[i2], -1));
-                    coefficients_b.push_back(calculate_difference(quad_infos, labels.size(), i, j, tile_labels[i1], tile_labels[i2]));
-                    coefficients_b.back() += existing_adjustments.at<float>(adjustment_points[i2]) - existing_adjustments.at<float>(adjustment_points[i1]);
+                    for (int channel = 0; channel < num_channels; channel++)
+                    {
+                        coefficients_b[channel].push_back(calculate_difference(quad_infos, labels.size(), i, j, tile_labels[i1], tile_labels[i2], channel));
+                        coefficients_b[channel].back() += existing_adjustments.at<float>(adjustment_points[i2].y, adjustment_points[i2].x * num_channels + channel) -
+                                                          existing_adjustments.at<float>(adjustment_points[i1].y, adjustment_points[i1].x * num_channels + channel);
+                    }
                     row++;
                 }
             }
@@ -746,23 +752,27 @@ cv::Mat global_seam_leveling(const cv::Mat &labels, const std::vector<std::vecto
     cg.compute(Lhs);
 
     /* Prepare right hand side. */
-    Eigen::VectorXf b(A_rows);
-    for (std::size_t i = 0; i < coefficients_b.size(); ++i)
+    Eigen::MatrixXf b(A_rows, num_channels);
+    for (std::size_t channel = 0; channel < coefficients_b.size(); ++channel)
     {
-        b[i] = coefficients_b[i];
+        for (std::size_t i = 0; i < coefficients_b[channel].size(); ++i)
+        {
+            b(i, channel) = coefficients_b[channel][i];
+        }
     }
-    Eigen::VectorXf Rhs = SpMat(A.transpose()) * b;
+    Eigen::MatrixXf Rhs = SpMat(A.transpose()) * b;
 
     /* Solve for x. */
-    Eigen::VectorXf x(x_rows);
+    Eigen::MatrixXf x(x_rows, num_channels);
     x = cg.solve(Rhs);
 
     /* Subtract mean because system is underconstrained and we seek the solution with minimal adjustments. */
-    x = x.array() - x.mean();
+    x.rowwise() -= x.colwise().mean();
 
     std::cout << "\t\tCG took " << cg.iterations() << " iterations. Residual is " << cg.error() << std::endl;
 
-    cv::Mat adjustments = cv::Mat::zeros(index_image.rows, index_image.cols, CV_32F);
+    cv::Mat adjustments = cv::Mat::zeros(index_image.rows, index_image.cols, CV_32FC(num_channels));
+
     for (int i = 0; i < index_image.rows; i++)
     {
         for (int j = 0; j < index_image.cols; j++)
@@ -772,8 +782,10 @@ cv::Mat global_seam_leveling(const cv::Mat &labels, const std::vector<std::vecto
             {
                 continue;
             }
-
-            adjustments.at<float>(i, j) = x[index];
+            for (int channel = 0; channel < num_channels; channel++)
+            {
+                adjustments.at<float>(i, num_channels * j + channel) = x(index, channel);
+            }
         }
     }
 
@@ -783,7 +795,6 @@ cv::Mat global_seam_leveling(const cv::Mat &labels, const std::vector<std::vecto
 cv::Mat create_mosaic(std::vector<ImageView> &image_views, const QuadMesh &mesh, const cv::Mat &labels, const cv::Mat &adjustments)
 {
     constexpr size_t tile_width = 32;
-    cv::Mat mosaic = cv::Mat::zeros(labels.rows * tile_width, labels.cols * tile_width, CV_16U);
 
     cv::Mat weight_br(tile_width, tile_width, CV_32F);
     for (size_t i = 0; i < tile_width; i++)
@@ -802,6 +813,9 @@ cv::Mat create_mosaic(std::vector<ImageView> &image_views, const QuadMesh &mesh,
     cv::rotate(weight_br, weight_tl, cv::ROTATE_180);
     cv::rotate(weight_br, weight_tr, cv::ROTATE_90_COUNTERCLOCKWISE);
     cv::rotate(weight_br, weight_bl, cv::ROTATE_90_CLOCKWISE);
+
+    int num_channels = adjustments.channels();
+    cv::Mat mosaic = cv::Mat::zeros(labels.rows * tile_width, labels.cols * tile_width, CV_16UC(num_channels));
 
     for (size_t k = 0; k < image_views.size(); k++)
     {
@@ -824,10 +838,16 @@ cv::Mat create_mosaic(std::vector<ImageView> &image_views, const QuadMesh &mesh,
                     constexpr bool preserve_max = true;
                     cv::Mat tile = image_views[k].GetTile(corner_pixels, cv::INTER_LINEAR, cv::BORDER_CONSTANT, preserve_max);
 
-                    cv::Mat adjustment = adjustments.at<float>(2 * i, 2 * j) * weight_tl +
-                                         adjustments.at<float>(2 * i, 2 * j + 1) * weight_tr +
-                                         adjustments.at<float>(2 * i + 1, 2 * j + 1) * weight_br +
-                                         adjustments.at<float>(2 * i + 1, 2 * j) * weight_bl;
+                    std::vector<cv::Mat> channel_adjustments;
+                    for (int channel = 0; channel < num_channels; channel++)
+                    {
+                        channel_adjustments.push_back(adjustments.at<float>(2 * i, num_channels * 2 * j + channel) * weight_tl +
+                                                      adjustments.at<float>(2 * i, num_channels * (2 * j + 1) + channel) * weight_tr +
+                                                      adjustments.at<float>(2 * i + 1, num_channels * (2 * j + 1) + channel) * weight_br +
+                                                      adjustments.at<float>(2 * i + 1, num_channels * 2 * j + channel) * weight_bl);
+                    }
+                    cv::Mat adjustment;
+                    cv::merge(channel_adjustments, adjustment);
                     cv::add(tile, adjustment, tile, cv::noArray(), tile.type());
                     tile.copyTo(mosaic(cv::Rect(j * tile_width, i * tile_width, tile_width, tile_width)));
                 }
@@ -851,7 +871,11 @@ int main(int argc, char **argv)
     const std::filesystem::path out_dir(argv[4]);
 
     const std::filesystem::path labeling_file;
-    const bool write_intermediate_results = false;
+    const bool write_intermediate_results = true;
+    const bool is_lwir = false;
+    const int num_channels = 3;
+
+    auto t1 = std::chrono::steady_clock::now();
 
     if (!std::filesystem::is_directory(out_dir))
     {
@@ -880,10 +904,12 @@ int main(int argc, char **argv)
 
     std::cout << "Load and prepare mesh: " << std::endl;
     QuadMesh mesh(dem_path);
+    std::cout << "Mesh Prepared at: " << std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - t1).count() << std::endl;
 
     std::cout << "Generating image views: " << std::endl;
     std::vector<ImageView> image_views = generate_image_views(reconstruction_path);
     std::cout << "Generated " << image_views.size() << " image views" << std::endl;
+    std::cout << "Views generated at: " << std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - t1).count() << std::endl;
 
     cv::Mat labels;
     cv::Mat adjustments;
@@ -894,8 +920,11 @@ int main(int argc, char **argv)
         std::vector<TemperatureCompensation *> temp_comp_per_view;
         std::cout << "Calculating Face Info" << std::endl;
         quad_infos = calculate_face_projection_infos(mesh, image_views, temp_comp_per_view);
-        std::cout << "Calculationt Data Costs" << std::endl;
+        std::cout << "Calculated Face Info at: " << std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - t1).count() << std::endl;
+
+        std::cout << "Calculating Data Costs" << std::endl;
         DataCosts data_costs = calculate_data_costs(mesh, quad_infos);
+        std::cout << "Calculated Data Costs at: " << std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - t1).count() << std::endl;
 
         size_t n_views = image_views.size();
         std::vector<float> pairwise_cost(n_views * n_views, 0);
@@ -917,6 +946,7 @@ int main(int argc, char **argv)
         cv::Mat tile_cost;
         std::cout << "Finding best local labels" << std::endl;
         labels = best_local_labels(quad_infos, mesh, tile_cost);
+        std::cout << "Found best local labels at: " << std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - t1).count() << std::endl;
         if (write_intermediate_results)
         {
             cv::Mat img;
@@ -932,8 +962,17 @@ int main(int argc, char **argv)
         {
             std::cout << "View selection" << std::endl;
             labels = view_selection(data_costs, mesh, tile_cost, pairwise_cost, n_views);
-            std::cout << "Temperature Compensation" << std::endl;
-            adjustments = angular_temperature_compensation(labels, mesh, image_views, temp_comp_per_view);
+            std::cout << "View Selection at: " << std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - t1).count() << std::endl;
+            if (is_lwir)
+            {
+                std::cout << "Temperature Compensation" << std::endl;
+                adjustments = angular_temperature_compensation(labels, mesh, image_views, temp_comp_per_view);
+                std::cout << "Temp Compensation at: " << std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - t1).count() << std::endl;
+            }
+            else
+            {
+                adjustments = cv::Mat::zeros(labels.rows * 2, labels.cols * 2, CV_32FC(num_channels));
+            }
 
             if (write_intermediate_results)
             {
@@ -943,7 +982,9 @@ int main(int argc, char **argv)
                 std::filesystem::path filepath = out_dir / "angular.png";
                 cv::imwrite(filepath, img);
             }
+            std::cout << "Global Seam leveling" << std::endl;
             adjustments = adjustments + global_seam_leveling(labels, quad_infos, adjustments);
+            std::cout << "Global Seam leveling at: " << std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - t1).count() << std::endl;
 
             if (write_intermediate_results)
             {
@@ -995,11 +1036,14 @@ int main(int argc, char **argv)
     geo.gdal_nodata_value = 0;
     geo.capture_time_utc = get_mean_time(image_views);
 
+    std::cout << "Creating mosaic" << std::endl;
     cv::Mat mosaic = create_mosaic(image_views, mesh, labels, adjustments);
+    std::cout << "Created mosaic at: " << std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - t1).count() << std::endl;
 
     std::cout << "Local seam leveling" << std::endl;
     cv::Mat local_adjustments = local_seam_leveling(labels, mosaic);
-    cv::add(mosaic, local_adjustments, mosaic, cv::noArray(), CV_16U);
+    std::cout << "Local seam leveling at: " << std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - t1).count() << std::endl;
+    // cv::add(mosaic, local_adjustments, mosaic, cv::noArray(), CV_16U);
 
     if (write_intermediate_results)
     {
@@ -1012,6 +1056,7 @@ int main(int argc, char **argv)
     std::cout << "Saving mosaic as geotiff" << std::endl;
     std::filesystem::path filepath = out_dir / "mosaic.tiff";
     save_geotiff(filepath, mosaic, geo);
+    std::cout << "Saved geotiff at: " << std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - t1).count() << std::endl;
 
     if (write_intermediate_results)
     {

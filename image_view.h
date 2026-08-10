@@ -27,14 +27,14 @@
 
 struct QuadInfo
 {
-    std::uint16_t view_id;
+    uint16_t view_id;
     float quality;
     bool fully_visible;
     uint16_t num_valid_pixels;
-    float tl;
-    float tr;
-    float br;
-    float bl;
+    std::vector<float> tl;
+    std::vector<float> tr;
+    std::vector<float> br;
+    std::vector<float> bl;
     float tl_w;
     float tr_w;
     float br_w;

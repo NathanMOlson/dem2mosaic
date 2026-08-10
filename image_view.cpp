@@ -428,10 +428,15 @@ void ImageView::get_face_info(const std::vector<cv::Point2f> &corners,
     if (face_info->fully_visible)
     {
         face_info->num_valid_pixels = _tile_width * _tile_width;
-        face_info->tl = _weight_tl.dot(tile_f);
-        face_info->tr = _weight_tr.dot(tile_f);
-        face_info->br = _weight_br.dot(tile_f);
-        face_info->bl = _weight_bl.dot(tile_f);
+        std::vector<cv::Mat> tile_channels;
+        cv::split(tile_f, tile_channels);
+        for (const auto &tile_channel : tile_channels)
+        {
+            face_info->tl.push_back(_weight_tl.dot(tile_channel));
+            face_info->tr.push_back(_weight_tr.dot(tile_channel));
+            face_info->br.push_back(_weight_br.dot(tile_channel));
+            face_info->bl.push_back(_weight_bl.dot(tile_channel));
+        }
         face_info->tl_w = 1;
         face_info->tr_w = 1;
         face_info->br_w = 1;
@@ -440,11 +445,15 @@ void ImageView::get_face_info(const std::vector<cv::Point2f> &corners,
     else
     {
         cv::Mat mask = GetTile(corners, cv::INTER_NEAREST, cv::BORDER_CONSTANT, preserve_max);
+        if (mask.channels() == 3)
+        {
+            cv::cvtColor(mask, mask, cv::COLOR_BGR2GRAY);
+        }
         if (mask.type() != CV_8U)
         {
             mask.convertTo(mask, CV_8U);
         }
-        face_info->num_valid_pixels = cv::countNonZero(tile);
+        face_info->num_valid_pixels = cv::countNonZero(mask);
         cv::Mat weight_tl, weight_tr, weight_br, weight_bl;
         _weight_tl.copyTo(weight_tl, mask);
         _weight_tr.copyTo(weight_tr, mask);
@@ -456,10 +465,15 @@ void ImageView::get_face_info(const std::vector<cv::Point2f> &corners,
         face_info->br_w = cv::sum(weight_br)[0];
         face_info->bl_w = cv::sum(weight_bl)[0];
 
-        face_info->tl = weight_tl.dot(tile_f);
-        face_info->tr = weight_tr.dot(tile_f);
-        face_info->br = weight_br.dot(tile_f);
-        face_info->bl = weight_bl.dot(tile_f);
+        std::vector<cv::Mat> tile_channels;
+        cv::split(tile_f, tile_channels);
+        for (const auto &tile_channel : tile_channels)
+        {
+            face_info->tl.push_back(_weight_tl.dot(tile_channel));
+            face_info->tr.push_back(_weight_tr.dot(tile_channel));
+            face_info->br.push_back(_weight_br.dot(tile_channel));
+            face_info->bl.push_back(_weight_bl.dot(tile_channel));
+        }
     }
 
     cv::Mat grad_x;
