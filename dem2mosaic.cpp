@@ -650,7 +650,7 @@ cv::Mat global_seam_leveling(const cv::Mat &labels, const std::vector<std::vecto
 
     std::cout << "Set Gamma from triplets" << std::endl;
 
-    int num_channels = 1;
+    int num_channels = 3;
 
     std::vector<SpCoeff> coefficients_A;
     std::vector<std::vector<float>> coefficients_b(num_channels);
@@ -873,7 +873,7 @@ int main(int argc, char **argv)
     const std::filesystem::path labeling_file;
     const bool write_intermediate_results = true;
     const bool is_lwir = false;
-    const int num_channels = 1;
+    const int num_channels = 3;
 
     auto t1 = std::chrono::steady_clock::now();
 
