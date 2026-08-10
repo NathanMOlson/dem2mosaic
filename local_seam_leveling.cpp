@@ -92,7 +92,7 @@ cv::Mat local_seam_leveling(const cv::Mat &labels, const cv::Mat mosaic)
                     {
                         int kr = (i * mosaic.cols + j) * num_channels + c;
                         int kl = kr - num_channels;
-                        float seam = ((int)mosaic.at<uint16_t>(i, j) - (int)mosaic.at<uint16_t>(i, j - 1));
+                        float seam = ((int)mosaic.at<uint16_t>(i, j * num_channels + c) - (int)mosaic.at<uint16_t>(i, (j - 1) * num_channels + c));
 
                         coeffs.try_emplace(kr, baseline);
                         coeffs[kr][0] += 1;
@@ -141,7 +141,7 @@ cv::Mat local_seam_leveling(const cv::Mat &labels, const cv::Mat mosaic)
                     {
                         int kb = (i * mosaic.cols + j) * num_channels + c;
                         int kt = kb - mosaic.cols * num_channels;
-                        float seam = ((int)mosaic.at<uint16_t>(i, j) - (int)mosaic.at<uint16_t>(i - 1, j));
+                        float seam = ((int)mosaic.at<uint16_t>(i, j * num_channels + c) - (int)mosaic.at<uint16_t>(i - 1, j * num_channels + c));
 
                         coeffs.try_emplace(kb, baseline);
                         coeffs[kb][0] += 1;
@@ -175,9 +175,9 @@ cv::Mat local_seam_leveling(const cv::Mat &labels, const cv::Mat mosaic)
         int j = k % (adjustments.cols * num_channels);
         pointers[m].out = &adjustments.at<float>(i, j);
         pointers[m].t = (c[1] == 1) ? &adjustments.at<float>(i - 1, j) : &zero;
-        pointers[m].r = (c[2] == 1) ? &adjustments.at<float>(i, j + 1) : &zero;
+        pointers[m].r = (c[2] == 1) ? &adjustments.at<float>(i, j + num_channels) : &zero;
         pointers[m].b = (c[3] == 1) ? &adjustments.at<float>(i + 1, j) : &zero;
-        pointers[m].l = (c[4] == 1) ? &adjustments.at<float>(i, j - 1) : &zero;
+        pointers[m].l = (c[4] == 1) ? &adjustments.at<float>(i, j - num_channels) : &zero;
         pointers[m].v = c[5];
         pointers[m].c0 = c[0];
         m++;

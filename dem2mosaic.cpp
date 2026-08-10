@@ -1043,7 +1043,7 @@ int main(int argc, char **argv)
     std::cout << "Local seam leveling" << std::endl;
     cv::Mat local_adjustments = local_seam_leveling(labels, mosaic);
     std::cout << "Local seam leveling at: " << std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - t1).count() << std::endl;
-    // cv::add(mosaic, local_adjustments, mosaic, cv::noArray(), CV_16U);
+    cv::add(mosaic, local_adjustments, mosaic, cv::noArray(), CV_16U);
 
     if (write_intermediate_results)
     {
