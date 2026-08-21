@@ -264,6 +264,21 @@ cv::Mat ImageView::GetTile(const std::vector<cv::Point2f> &corners, int interp_t
     cv::Mat warp = cv::getPerspectiveTransform(corners, tile_corners);
     cv::Mat tile(_tile_width, _tile_width, image.type());
     cv::warpPerspective(image, tile, warp, tile.size(), interp_type, border_mode);
+    if (!_scale.empty())
+    {
+        if (image.channels() == 3 && _scale.size() == 3)
+        {
+            cv::multiply(tile, cv::Scalar(_scale[0], _scale[1], _scale[2]), tile, 1, tile.type());
+        }
+        else if (image.channels() == 1)
+        {
+            tile *= _scale[0];
+        }
+        else
+        {
+            throw std::invalid_argument("Can't scale image, wrong number of channels");
+        }
+    }
 
     if (preserve_max)
     {
@@ -304,6 +319,16 @@ cv::Mat ImageView::GetTile(const std::vector<cv::Point2f> &corners, int interp_t
     }
 
     return tile;
+}
+
+void ImageView::SetScale(const std::vector<float> &scale)
+{
+    _scale = scale;
+}
+
+std::vector<float> ImageView::GetScale()
+{
+    return _scale;
 }
 
 bool ImageView::IsImageLoaded() const

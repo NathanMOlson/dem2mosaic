@@ -68,6 +68,7 @@ private:
     cv::Mat _weight_bl;
 
     std::shared_ptr<Undistorter> _undistorter;
+    std::vector<float> _scale;
 
     static constexpr size_t _tile_width = 32;
 
@@ -102,6 +103,8 @@ public:
               const std::filesystem::path &image_file);
 
     cv::Mat GetTile(const std::vector<cv::Point2f> &corners, int interp_type, int border_mode, bool preserve_max) const;
+    void SetScale(const std::vector<float>& scale);
+    std::vector<float> GetScale();
 
     bool IsImageLoaded() const;
 

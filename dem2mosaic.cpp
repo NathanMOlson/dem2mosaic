@@ -197,7 +197,7 @@ cv::Mat view_selection(DataCosts const &data_costs, const QuadMesh &mesh,
 }
 
 std::vector<std::vector<QuadInfo>> calculate_face_projection_infos(const QuadMesh &mesh,
-                                                                   const std::vector<ImageView> &image_views,
+                                                                   std::vector<ImageView> &image_views,
                                                                    std::vector<TemperatureCompensation *> *temp_comp_per_view)
 {
     std::vector<std::vector<QuadInfo>> face_projection_infos(mesh.NumFaces());
@@ -468,7 +468,22 @@ std::vector<std::vector<QuadInfo>> calculate_face_projection_infos(const QuadMes
         }
         for (size_t k = 0; k < num_views; k++)
         {
-            std::cout << k << ": " << image_scales[k][0] << ", " << image_scales[k][1] << ", " << image_scales[k][2] << std::endl;
+            image_views[k].SetScale(image_scales[k]);
+        }
+        for (size_t k = 0; k < face_projection_infos.size(); k++)
+        {
+            std::vector<QuadInfo> &infos = face_projection_infos[k];
+            for (QuadInfo &info : infos)
+            {
+                std::vector<float> s = image_scales[info.view_id];
+                for (int c = 0; c < num_channels; c++)
+                {
+                    info.tl[c] *= s[c];
+                    info.tr[c] *= s[c];
+                    info.br[c] *= s[c];
+                    info.bl[c] *= s[c];
+                }
+            }
         }
     }
 
