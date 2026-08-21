@@ -586,3 +586,9 @@ std::optional<double> get_mean_time(const std::vector<ImageView> &image_views)
     }
     return sum / num;
 }
+
+float quad_brightness(const QuadInfo &quad_info, int channel)
+{
+    return (quad_info.tl[channel] + quad_info.tr[channel] + quad_info.br[channel] + quad_info.bl[channel]) /
+           (quad_info.tl_w + quad_info.tr_w + quad_info.br_w + quad_info.bl_w);
+}

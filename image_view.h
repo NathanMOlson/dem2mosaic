@@ -127,5 +127,6 @@ public:
 
 std::vector<ImageView> generate_image_views(const std::filesystem::path &json_file);
 std::optional<double> get_mean_time(const std::vector<ImageView> &image_views);
+float quad_brightness(const QuadInfo &quad_info, int channel);
 
 #endif
