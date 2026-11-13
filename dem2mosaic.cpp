@@ -960,7 +960,6 @@ int main(int argc, char **argv)
 
     const std::filesystem::path labeling_file;
     const bool write_intermediate_results = true;
-    const bool is_lwir = false;
 
     auto t1 = std::chrono::steady_clock::now();
 
@@ -997,6 +996,8 @@ int main(int argc, char **argv)
     std::vector<ImageView> image_views = generate_image_views(reconstruction_path);
     std::cout << "Generated " << image_views.size() << " image views" << std::endl;
     std::cout << "Views generated at: " << std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - t1).count() << std::endl;
+    
+    const bool is_lwir = (image_views[0].NumChannels() == 1); //TODO: does not handle NIR
 
     cv::Mat labels;
     cv::Mat adjustments;
