@@ -62,6 +62,7 @@ private:
     cv::Mat image;
     std::string _serial_number;
     size_t _num_channels;
+    std::string _spectral_band;
 
     cv::Mat _weight_tl;
     cv::Mat _weight_tr;
@@ -107,6 +108,7 @@ public:
     void SetScale(const std::vector<float> &scale);
     std::vector<float> GetScale() const;
     size_t NumChannels() const;
+    bool IsLwir() const;
 
     bool IsImageLoaded() const;
 

@@ -997,7 +997,7 @@ int main(int argc, char **argv)
     std::cout << "Generated " << image_views.size() << " image views" << std::endl;
     std::cout << "Views generated at: " << std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - t1).count() << std::endl;
     
-    const bool is_lwir = (image_views[0].NumChannels() == 1); //TODO: does not handle NIR
+    const bool is_lwir = image_views[0].IsLwir();
 
     cv::Mat labels;
     cv::Mat adjustments;

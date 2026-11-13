@@ -25,6 +25,8 @@
 #include <jxl/decode_cxx.h>
 using json = nlohmann::json;
 
+#define EXIF_TAG_CAMERA_LABEL ((ExifTag)0xc7a1)
+
 std::vector<uint8_t> extract_jxl_box(const std::filesystem::path &filepath, const std::string &box_name)
 {
     std::vector<uint8_t> box;
@@ -169,7 +171,7 @@ std::optional<std::string> exif_read_string_tag(ExifData *exif, ExifIfd ifd, Exi
     return std::string(buf);
 }
 
-std::string extract_serial_number_and_channels(const std::filesystem::path jxl, size_t &num_channels)
+std::string extract_serial_number_and_channels(const std::filesystem::path jxl, size_t &num_channels, std::string &spectral_band)
 {
     num_channels = extract_jxl_basic_info(jxl).num_color_channels;
 
@@ -188,7 +190,18 @@ std::string extract_serial_number_and_channels(const std::filesystem::path jxl, 
     }
     exif_data_load_data(exif, raw_shifted.data(), raw_shifted.size());
 
-    return exif_read_string_tag(exif, EXIF_IFD_EXIF, EXIF_TAG_BODY_SERIAL_NUMBER).value_or("");
+    std::string maker_note_str = exif_read_string_tag(exif, EXIF_IFD_EXIF, (ExifTag)EXIF_TAG_MAKER_NOTE).value_or("");
+    try
+    {
+        json maker_note = json::parse(maker_note_str);
+        spectral_band = maker_note["spectral_band"];
+    }
+    catch (const std::exception &e)
+    {
+    }
+
+    return exif_read_string_tag(exif, EXIF_IFD_EXIF, EXIF_TAG_BODY_SERIAL_NUMBER).value_or("") +
+           exif_read_string_tag(exif, EXIF_IFD_0, EXIF_TAG_CAMERA_LABEL).value_or("");
 }
 
 void ImageView::initializeCameraPos(const Eigen::Vector3f &trans, const Eigen::Matrix<float, 3, 3> &rot)
@@ -270,7 +283,7 @@ ImageView::ImageView(std::size_t id, const Eigen::Vector3f &translation,
     cv::rotate(_weight_br, _weight_tr, cv::ROTATE_90_COUNTERCLOCKWISE);
     cv::rotate(_weight_br, _weight_bl, cv::ROTATE_90_CLOCKWISE);
 
-    _serial_number = extract_serial_number_and_channels(image_file, _num_channels);
+    _serial_number = extract_serial_number_and_channels(image_file, _num_channels, _spectral_band);
 }
 
 cv::Point2f ImageView::get_pixel_coords(Eigen::Vector3f const &vertex) const
@@ -377,6 +390,11 @@ std::vector<float> ImageView::GetScale() const
 size_t ImageView::NumChannels() const
 {
     return _num_channels;
+}
+
+bool ImageView::IsLwir() const
+{
+    return (_spectral_band == "LWIR") || (_spectral_band.empty() && _num_channels == 1);
 }
 
 bool ImageView::IsImageLoaded() const
