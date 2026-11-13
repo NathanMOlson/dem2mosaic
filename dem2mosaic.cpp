@@ -197,7 +197,7 @@ cv::Mat view_selection(DataCosts const &data_costs, const QuadMesh &mesh,
 }
 
 std::vector<std::vector<QuadInfo>> calculate_face_projection_infos(const QuadMesh &mesh,
-                                                                   std::vector<ImageView> &image_views,
+                                                                   const std::vector<ImageView> &image_views,
                                                                    std::vector<TemperatureCompensation *> *temp_comp_per_view)
 {
     std::vector<std::vector<QuadInfo>> face_projection_infos(mesh.NumFaces());
@@ -211,7 +211,7 @@ std::vector<std::vector<QuadInfo>> calculate_face_projection_infos(const QuadMes
     // BVHTree bvh_tree(faces, vertices);
     // std::cout << "done. (Took: " << timer.get_elapsed() << " ms)" << std::endl;
 
-    const int num_channels = 3;
+    const int num_channels = image_views[0].NumChannels();
     int next_camera_id = 0;
     std::map<std::string, int> camera_ids;
 
@@ -227,7 +227,6 @@ std::vector<std::vector<QuadInfo>> calculate_face_projection_infos(const QuadMes
     }
     const size_t num_cameras = camera_ids.size();
     std::vector<TemperatureCompensation *> temp_comps;
-    std::vector<std::vector<float>> image_scales;
     int linear_system_size;
     std::vector<Eigen::VectorXd> Ab_overall;
     std::vector<Eigen::MatrixXd> AA_overall;
@@ -240,10 +239,7 @@ std::vector<std::vector<QuadInfo>> calculate_face_projection_infos(const QuadMes
         }
         linear_system_size = num_cameras + 1;
     }
-    else
-    {
-        linear_system_size = num_views;
-    }
+
     for (int i = 0; i < num_channels; i++)
     {
         Ab_overall.push_back(Eigen::VectorXd::Zero(linear_system_size));
@@ -416,78 +412,81 @@ std::vector<std::vector<QuadInfo>> calculate_face_projection_infos(const QuadMes
             temp_comps[id]->b = x[num_cameras];
         }
     }
-    else
+
+    return face_projection_infos;
+}
+
+void brightness_balance(std::vector<ImageView> &image_views, std::vector<std::vector<QuadInfo>> &face_projection_infos)
+{
+    size_t num_channels = image_views[0].NumChannels();
+    size_t num_views = image_views.size();
+    std::vector<std::vector<float>> image_scales(num_views);
+    for (size_t c = 0; c < num_channels; c++)
     {
-        for (int c = 0; c < num_channels; c++)
+        Eigen::VectorXd Ab = Eigen::VectorXd::Zero(num_views);
+        Eigen::MatrixXd AA = Eigen::MatrixXd::Zero(num_views, num_views);
+
+        for (size_t k = 0; k < face_projection_infos.size(); k++)
         {
-            for (size_t k = 0; k < face_projection_infos.size(); k++)
+            const std::vector<QuadInfo> &infos = face_projection_infos[k];
+            for (size_t i = 0; i < infos.size(); i++)
             {
-                const std::vector<QuadInfo> &infos = face_projection_infos[k];
-                for (size_t i = 0; i < infos.size(); i++)
+                const QuadInfo &info1 = infos[i];
+                if (!info1.fully_visible)
                 {
-                    const QuadInfo &info1 = infos[i];
-                    if (!info1.fully_visible)
+                    continue;
+                }
+                float brightness1 = quad_brightness(info1, c);
+                if (brightness1 > 3500)
+                {
+                    std::cout << "brightness: " << brightness1 << std::endl;
+                }
+                for (size_t j = i + 1; j < infos.size(); j++)
+                {
+                    const QuadInfo &info2 = infos[j];
+                    if (!info2.fully_visible)
                     {
                         continue;
                     }
-                    float brightness1 = quad_brightness(info1, c);
-                    if (brightness1 > 3500)
-                    {
-                        std::cout << "brightness: " << brightness1 << std::endl;
-                    }
-                    for (size_t j = i + 1; j < infos.size(); j++)
-                    {
-                        const QuadInfo &info2 = infos[j];
-                        if (!info2.fully_visible)
-                        {
-                            continue;
-                        }
-                        float brightness2 = quad_brightness(info2, c);
-                        AA_overall[c](info1.view_id, info1.view_id) += brightness1 * brightness1;
-                        AA_overall[c](info2.view_id, info2.view_id) += brightness2 * brightness2;
-                        AA_overall[c](info1.view_id, info2.view_id) -= brightness1 * brightness2;
-                        AA_overall[c](info2.view_id, info1.view_id) -= brightness1 * brightness2;
-                    }
+                    float brightness2 = quad_brightness(info2, c);
+                    AA(info1.view_id, info1.view_id) += brightness1 * brightness1;
+                    AA(info2.view_id, info2.view_id) += brightness2 * brightness2;
+                    AA(info1.view_id, info2.view_id) -= brightness1 * brightness2;
+                    AA(info2.view_id, info1.view_id) -= brightness1 * brightness2;
                 }
             }
-            const double regularization_weight = 0.01;
-            double m = AA_overall[c].diagonal().mean() * regularization_weight;
-            AA_overall[c].diagonal().array() += m;
-            Ab_overall[c].array() += m;
         }
-
-        image_scales.resize(num_views);
-        for (int c = 0; c < num_channels; c++)
-        {
-            Eigen::VectorXd x = AA_overall[c].ldlt().solve(Ab_overall[c]);
-            x.array() /= x.mean();
-            for (size_t k = 0; k < num_views; k++)
-            {
-                image_scales[k].push_back(x[k]);
-            }
-        }
+        const double regularization_weight = 0.01;
+        double m = AA.diagonal().mean() * regularization_weight;
+        AA.diagonal().array() += m;
+        Ab.array() += m;
+        Eigen::VectorXd x = AA.ldlt().solve(Ab);
+        x.array() /= x.mean();
         for (size_t k = 0; k < num_views; k++)
         {
-            image_views[k].SetScale(image_scales[k]);
-        }
-        for (size_t k = 0; k < face_projection_infos.size(); k++)
-        {
-            std::vector<QuadInfo> &infos = face_projection_infos[k];
-            for (QuadInfo &info : infos)
-            {
-                std::vector<float> s = image_scales[info.view_id];
-                for (int c = 0; c < num_channels; c++)
-                {
-                    info.tl[c] *= s[c];
-                    info.tr[c] *= s[c];
-                    info.br[c] *= s[c];
-                    info.bl[c] *= s[c];
-                }
-            }
+            image_scales[k].push_back(x[k]);
         }
     }
 
-    return face_projection_infos;
+    for (size_t k = 0; k < num_views; k++)
+    {
+        image_views[k].SetScale(image_scales[k]);
+    }
+    for (size_t k = 0; k < face_projection_infos.size(); k++)
+    {
+        std::vector<QuadInfo> &infos = face_projection_infos[k];
+        for (QuadInfo &info : infos)
+        {
+            std::vector<float> s = image_scales[info.view_id];
+            for (size_t c = 0; c < num_channels; c++)
+            {
+                info.tl[c] *= s[c];
+                info.tr[c] *= s[c];
+                info.br[c] *= s[c];
+                info.bl[c] *= s[c];
+            }
+        }
+    }
 }
 
 DataCosts calculate_data_costs(const QuadMesh &mesh, std::vector<std::vector<QuadInfo>> &face_projection_infos)
@@ -962,7 +961,6 @@ int main(int argc, char **argv)
     const std::filesystem::path labeling_file;
     const bool write_intermediate_results = true;
     const bool is_lwir = false;
-    const int num_channels = 3;
 
     auto t1 = std::chrono::steady_clock::now();
 
@@ -1010,6 +1008,16 @@ int main(int argc, char **argv)
         std::cout << "Calculating Face Info" << std::endl;
         quad_infos = calculate_face_projection_infos(mesh, image_views, is_lwir ? &temp_comp_per_view : nullptr);
         std::cout << "Calculated Face Info at: " << std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - t1).count() << std::endl;
+
+        if (is_lwir)
+        {
+        }
+        else
+        {
+            std::cout << "Brightness Balancing" << std::endl;
+            brightness_balance(image_views, quad_infos);
+            std::cout << "Brightness Balanced at: " << std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - t1).count() << std::endl;
+        }
 
         std::cout << "Calculating Data Costs" << std::endl;
         DataCosts data_costs = calculate_data_costs(mesh, quad_infos);
@@ -1060,7 +1068,7 @@ int main(int argc, char **argv)
             }
             else
             {
-                adjustments = cv::Mat::zeros(labels.rows * 2, labels.cols * 2, CV_32FC(num_channels));
+                adjustments = cv::Mat::zeros(labels.rows * 2, labels.cols * 2, CV_32FC(image_views[0].NumChannels()));
             }
 
             if (write_intermediate_results)

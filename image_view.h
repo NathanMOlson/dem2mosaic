@@ -61,6 +61,7 @@ private:
     double _capture_time;
     cv::Mat image;
     std::string _serial_number;
+    size_t _num_channels;
 
     cv::Mat _weight_tl;
     cv::Mat _weight_tr;
@@ -103,8 +104,9 @@ public:
               const std::filesystem::path &image_file);
 
     cv::Mat GetTile(const std::vector<cv::Point2f> &corners, int interp_type, int border_mode, bool preserve_max) const;
-    void SetScale(const std::vector<float>& scale);
-    std::vector<float> GetScale();
+    void SetScale(const std::vector<float> &scale);
+    std::vector<float> GetScale() const;
+    size_t NumChannels() const;
 
     bool IsImageLoaded() const;
 

@@ -116,6 +116,47 @@ std::vector<uint8_t> extract_jxl_box(const std::filesystem::path &filepath, cons
     }
 }
 
+JxlBasicInfo extract_jxl_basic_info(const std::filesystem::path &filepath)
+{
+    JxlBasicInfo info = {};
+    JxlDecoderPtr dec = JxlDecoderMake(nullptr);
+
+    std::ifstream file(filepath, std::ios::binary);
+    std::vector<uint8_t> jxl = std::vector<uint8_t>(std::istreambuf_iterator<char>(file),
+                                                    std::istreambuf_iterator<char>());
+
+    if (JXL_DEC_SUCCESS != JxlDecoderSubscribeEvents(
+                               dec.get(), JXL_DEC_BASIC_INFO))
+    {
+        return info;
+    }
+    JxlDecoderSetInput(dec.get(), jxl.data(), jxl.size());
+    JxlDecoderCloseInput(dec.get());
+
+    for (;;)
+    {
+        JxlDecoderStatus status = JxlDecoderProcessInput(dec.get());
+        if (status == JXL_DEC_ERROR)
+        {
+            break;
+        }
+        if (status == JXL_DEC_NEED_MORE_INPUT)
+        {
+            break;
+        }
+        if (status == JXL_DEC_BASIC_INFO)
+        {
+            JxlDecoderGetBasicInfo(dec.get(), &info);
+            break;
+        }
+        if (status == JXL_DEC_SUCCESS)
+        {
+            break;
+        }
+    }
+    return info;
+}
+
 std::optional<std::string> exif_read_string_tag(ExifData *exif, ExifIfd ifd, ExifTag tag)
 {
     ExifEntry *entry = exif_content_get_entry(exif->ifd[ifd], tag);
@@ -128,8 +169,10 @@ std::optional<std::string> exif_read_string_tag(ExifData *exif, ExifIfd ifd, Exi
     return std::string(buf);
 }
 
-std::string parse_serial_number(const std::filesystem::path jxl)
+std::string extract_serial_number_and_channels(const std::filesystem::path jxl, size_t &num_channels)
 {
+    num_channels = extract_jxl_basic_info(jxl).num_color_channels;
+
     std::vector<uint8_t> raw = extract_jxl_box(jxl, "Exif");
 
     std::vector<uint8_t> raw_shifted(raw.size() + 2, 0);
@@ -227,7 +270,7 @@ ImageView::ImageView(std::size_t id, const Eigen::Vector3f &translation,
     cv::rotate(_weight_br, _weight_tr, cv::ROTATE_90_COUNTERCLOCKWISE);
     cv::rotate(_weight_br, _weight_bl, cv::ROTATE_90_CLOCKWISE);
 
-    _serial_number = parse_serial_number(image_file);
+    _serial_number = extract_serial_number_and_channels(image_file, _num_channels);
 }
 
 cv::Point2f ImageView::get_pixel_coords(Eigen::Vector3f const &vertex) const
@@ -326,9 +369,14 @@ void ImageView::SetScale(const std::vector<float> &scale)
     _scale = scale;
 }
 
-std::vector<float> ImageView::GetScale()
+std::vector<float> ImageView::GetScale() const
 {
     return _scale;
+}
+
+size_t ImageView::NumChannels() const
+{
+    return _num_channels;
 }
 
 bool ImageView::IsImageLoaded() const
@@ -449,6 +497,11 @@ void ImageView::get_face_info(const std::vector<cv::Point2f> &corners,
     cv::Mat tile = GetTile(corners, cv::INTER_LINEAR, cv::BORDER_REPLICATE, preserve_max);
     cv::Mat tile_f;
     tile.convertTo(tile_f, CV_32F);
+
+    face_info->tl.reserve(tile.channels());
+    face_info->tr.reserve(tile.channels());
+    face_info->br.reserve(tile.channels());
+    face_info->bl.reserve(tile.channels());
 
     if (face_info->fully_visible)
     {
