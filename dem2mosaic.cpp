@@ -238,12 +238,12 @@ std::vector<std::vector<QuadInfo>> calculate_face_projection_infos(const QuadMes
             temp_comps.push_back(new TemperatureCompensation);
         }
         linear_system_size = num_cameras + 1;
-    }
 
-    for (int i = 0; i < num_channels; i++)
-    {
-        Ab_overall.push_back(Eigen::VectorXd::Zero(linear_system_size));
-        AA_overall.push_back(Eigen::MatrixXd::Zero(linear_system_size, linear_system_size));
+        for (int i = 0; i < num_channels; i++)
+        {
+            Ab_overall.push_back(Eigen::VectorXd::Zero(linear_system_size));
+            AA_overall.push_back(Eigen::MatrixXd::Zero(linear_system_size, linear_system_size));
+        }
     }
 
 #pragma omp parallel
