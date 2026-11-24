@@ -24,7 +24,7 @@
 class Undistorter
 {
 public:
-    Undistorter(double fx, double fy, double cx, double cy, size_t width, size_t height, const std::vector<double> &dist_coeffs);
+    Undistorter(double fx, double fy, double cx, double cy, size_t width, size_t height, const std::vector<double> &dist_coeffs, bool is_fisheye);
 
     std::vector<cv::Point2f> GetPixelCoords(const std::vector<cv::Point3f> &rays_cam) const;
     cv::Point2f GetPixelCoords(const cv::Point3f &ray_cam) const;
@@ -36,6 +36,7 @@ private:
     cv::Mat _cam_new;
     std::vector<double> _dist_coeffs;
     float _max_xy_length;
+    bool _is_fisheye;
 
     cv::Mat _map1;
     cv::Mat _map2;

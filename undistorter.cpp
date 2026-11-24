@@ -22,7 +22,8 @@
 Undistorter::Undistorter(double fx, double fy,
                          double cx, double cy,
                          size_t width, size_t height,
-                         const std::vector<double> &dist_coeffs) : _dist_coeffs(dist_coeffs)
+                         const std::vector<double> &dist_coeffs,
+                         bool is_fisheye) : _dist_coeffs(dist_coeffs), _is_fisheye(is_fisheye)
 {
     _cam_old = cv::Mat::zeros(3, 3, CV_32F);
     size_t maxdim = std::max(height, width);
@@ -37,7 +38,7 @@ Undistorter::Undistorter(double fx, double fy,
 
     float x_out = 0;
     float r = 0.25;
-    for (; r < 1.0e9; r*= 1.1)
+    for (; r < 1.0e9; r *= 1.1)
     {
         cv::Point2f p = GetPixelCoords(cv::Point3f(r, 0, 1));
         if (p.x < x_out)
@@ -48,14 +49,29 @@ Undistorter::Undistorter(double fx, double fy,
     }
     _max_xy_length = r / 1.1;
 
-    cv::initUndistortRectifyMap(_cam_old, _dist_coeffs, cv::noArray(), _cam_new, cv::Size(width, height), CV_16SC2, _map1, _map2);
+    if (is_fisheye)
+    {
+        cv::fisheye::initUndistortRectifyMap(_cam_old, _dist_coeffs, cv::noArray(), _cam_new, cv::Size(width, height), CV_16SC2, _map1, _map2);
+    }
+    else
+    {
+        cv::initUndistortRectifyMap(_cam_old, _dist_coeffs, cv::noArray(), _cam_new, cv::Size(width, height), CV_16SC2, _map1, _map2);
+    }
 }
 
 std::vector<cv::Point2f> Undistorter::GetPixelCoords(const std::vector<cv::Point3f> &rays_cam) const
 {
     std::vector<cv::Point2f> coords;
-    std::vector<float> zero_vec(3, 0);
-    cv::projectPoints(rays_cam, zero_vec, zero_vec, _cam_old, _dist_coeffs, coords);
+    std::vector<double> zero_vec(3, 0);
+    if (_is_fisheye)
+    {
+        std::vector<float> dist_coeffs(_dist_coeffs.begin(), _dist_coeffs.end());
+        cv::fisheye::projectPoints(rays_cam, coords, zero_vec, zero_vec, _cam_old, dist_coeffs);
+    }
+    else
+    {
+        cv::projectPoints(rays_cam, zero_vec, zero_vec, _cam_old, _dist_coeffs, coords);
+    }
     return coords;
 }
 

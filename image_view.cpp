@@ -607,7 +607,7 @@ std::shared_ptr<Undistorter> create_undistorter_brown(const json &cam)
     dist_coeffs.push_back(cam["p1"]);
     dist_coeffs.push_back(cam["p2"]);
     dist_coeffs.push_back(cam["k3"]);
-    return std::make_shared<Undistorter>(fx, fy, cx, cy, width, height, dist_coeffs);
+    return std::make_shared<Undistorter>(fx, fy, cx, cy, width, height, dist_coeffs, false);
 }
 
 std::shared_ptr<Undistorter> create_undistorter_perspective(const json &cam)
@@ -620,7 +620,23 @@ std::shared_ptr<Undistorter> create_undistorter_perspective(const json &cam)
     dist_coeffs.push_back(cam["k2"]);
     dist_coeffs.push_back(0);
     dist_coeffs.push_back(0);
-    return std::make_shared<Undistorter>(f, f, 0.0, 0.0, width, height, dist_coeffs);
+    return std::make_shared<Undistorter>(f, f, 0.0, 0.0, width, height, dist_coeffs, false);
+}
+
+std::shared_ptr<Undistorter> create_undistorter_fisheye(const json &cam)
+{
+    double fx = cam["focal_x"];
+    double fy = cam["focal_y"];
+    double cx = cam["c_x"];
+    double cy = cam["c_y"];
+    size_t width = cam["width"];
+    size_t height = cam["height"];
+    std::vector<double> dist_coeffs;
+    dist_coeffs.push_back(cam["k1"]);
+    dist_coeffs.push_back(cam["k2"]);
+    dist_coeffs.push_back(cam["k3"]);
+    dist_coeffs.push_back(cam["k4"]);
+    return std::make_shared<Undistorter>(fx, fy, cx, cy, width, height, dist_coeffs, true);
 }
 
 std::shared_ptr<Undistorter> create_undistorter(const json &cam)
@@ -633,7 +649,11 @@ std::shared_ptr<Undistorter> create_undistorter(const json &cam)
     {
         return create_undistorter_perspective(cam);
     }
-    throw std::invalid_argument("invalid projection type");
+    else if (cam["projection_type"] == "fisheye_opencv")
+    {
+        return create_undistorter_fisheye(cam);
+    }
+    throw std::invalid_argument(std::string("invalid projection type: ") + std::string(cam["projection_type"]));
 }
 
 std::vector<ImageView> generate_image_views(const std::filesystem::path &json_file)
