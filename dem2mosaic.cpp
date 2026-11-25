@@ -319,7 +319,9 @@ std::vector<std::vector<QuadInfo>> calculate_face_projection_infos(const QuadMes
 
                     /* Projects into the valid part of the ImageView? */
                     if (!image_view.intersects(corner_pixels))
+                    {
                         continue;
+                    }
 
                     // BVHTree::Ray ray;
                     // ray.dir = view_pos - face_center;
@@ -338,7 +340,9 @@ std::vector<std::vector<QuadInfo>> calculate_face_projection_infos(const QuadMes
                     image_view.get_face_info(corner_pixels, &info);
 
                     if (info.quality <= 0.0)
+                    {
                         continue;
+                    }
 
                     if (temp_comp_per_view != nullptr)
                     {
@@ -437,10 +441,7 @@ void brightness_balance(std::vector<ImageView> &image_views, std::vector<std::ve
                     continue;
                 }
                 float brightness1 = quad_brightness(info1, c);
-                if (brightness1 > 3500)
-                {
-                    std::cout << "brightness: " << brightness1 << std::endl;
-                }
+
                 for (size_t j = i + 1; j < infos.size(); j++)
                 {
                     const QuadInfo &info2 = infos[j];
