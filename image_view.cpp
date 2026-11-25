@@ -476,6 +476,10 @@ void ImageView::load_image(void)
     {
         image = cv::Mat::zeros(1024, 1280, CV_16U);
     }
+    if (image.channels() == 3)
+    {
+        cv::cvtColor(image, image, cv::COLOR_BGR2RGB);
+    }
 }
 
 void ImageView::release_image(void)
