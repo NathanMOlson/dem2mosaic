@@ -25,6 +25,8 @@
 #include <jxl/decode_cxx.h>
 using json = nlohmann::json;
 
+#define EXIF_TAG_CAMERA_LABEL ((ExifTag)0xc7a1)
+
 std::vector<uint8_t> extract_jxl_box(const std::filesystem::path &filepath, const std::string &box_name)
 {
     std::vector<uint8_t> box;
@@ -116,6 +118,215 @@ std::vector<uint8_t> extract_jxl_box(const std::filesystem::path &filepath, cons
     }
 }
 
+JxlBasicInfo extract_jxl_basic_info(const std::filesystem::path &filepath)
+{
+    JxlBasicInfo info = {};
+    JxlDecoderPtr dec = JxlDecoderMake(nullptr);
+
+    std::ifstream file(filepath, std::ios::binary);
+    std::vector<uint8_t> jxl = std::vector<uint8_t>(std::istreambuf_iterator<char>(file),
+                                                    std::istreambuf_iterator<char>());
+
+    if (JXL_DEC_SUCCESS != JxlDecoderSubscribeEvents(
+                               dec.get(), JXL_DEC_BASIC_INFO))
+    {
+        return info;
+    }
+    JxlDecoderSetInput(dec.get(), jxl.data(), jxl.size());
+    JxlDecoderCloseInput(dec.get());
+
+    for (;;)
+    {
+        JxlDecoderStatus status = JxlDecoderProcessInput(dec.get());
+        if (status == JXL_DEC_ERROR)
+        {
+            break;
+        }
+        if (status == JXL_DEC_NEED_MORE_INPUT)
+        {
+            break;
+        }
+        if (status == JXL_DEC_BASIC_INFO)
+        {
+            JxlDecoderGetBasicInfo(dec.get(), &info);
+            break;
+        }
+        if (status == JXL_DEC_SUCCESS)
+        {
+            break;
+        }
+    }
+    return info;
+}
+
+JxlPixelFormat get_pixel_format(const JxlBasicInfo &info)
+{
+    if (info.exponent_bits_per_sample == 0)
+    {
+        if (info.bits_per_sample <= 8)
+        {
+            return JxlPixelFormat{info.num_color_channels, JXL_TYPE_UINT8, JXL_NATIVE_ENDIAN, 0};
+        }
+        else if (info.bits_per_sample <= 16)
+        {
+            return JxlPixelFormat{info.num_color_channels, JXL_TYPE_UINT16, JXL_NATIVE_ENDIAN, 0};
+        }
+    }
+    throw std::invalid_argument("Unsupported JXL image format");
+}
+
+int get_opencv_type(const JxlBasicInfo &info)
+{
+    if (info.num_color_channels == 3 && info.exponent_bits_per_sample == 0)
+    {
+        if (info.bits_per_sample <= 8)
+        {
+            return CV_8UC3;
+        }
+        else if (info.bits_per_sample <= 16)
+        {
+            return CV_16UC3;
+        }
+    }
+    if (info.num_color_channels == 1 && info.exponent_bits_per_sample == 0)
+    {
+        if (info.bits_per_sample <= 8)
+        {
+            return CV_8UC1;
+        }
+        else if (info.bits_per_sample <= 16)
+        {
+            return CV_16UC1;
+        }
+    }
+    throw std::invalid_argument("Unsupported JXL image format");
+}
+
+cv::Mat read_jxl(const std::filesystem::path &filepath)
+{
+    std::ifstream file(filepath, std::ios::binary);
+    if (!file)
+    {
+        std::cout << "Failed to open " << filepath << std::endl;
+        return cv::Mat();
+    }
+    std::vector<uint8_t> jxl = std::vector<uint8_t>(std::istreambuf_iterator<char>(file),
+                                                    std::istreambuf_iterator<char>());
+
+    auto dec = JxlDecoderMake(nullptr);
+    if (JXL_DEC_SUCCESS !=
+        JxlDecoderSubscribeEvents(dec.get(), JXL_DEC_BASIC_INFO |
+                                                 JXL_DEC_COLOR_ENCODING |
+                                                 JXL_DEC_FULL_IMAGE))
+    {
+        std::cout << "JxlDecoderSubscribeEvents failed" << std::endl;
+        return cv::Mat();
+    }
+
+    JxlBasicInfo info;
+    JxlPixelFormat format;
+
+    JxlDecoderSetInput(dec.get(), (uint8_t *)jxl.data(), jxl.size());
+
+    cv::Mat img;
+    std::vector<uint8_t> icc_profile;
+
+    for (;;)
+    {
+        JxlDecoderStatus status = JxlDecoderProcessInput(dec.get());
+
+        if (status == JXL_DEC_ERROR)
+        {
+            std::cout << "Decoder error" << std::endl;
+            return cv::Mat();
+        }
+        else if (status == JXL_DEC_NEED_MORE_INPUT)
+        {
+            std::cout << "Error, already provided all input" << std::endl;
+            return cv::Mat();
+        }
+        else if (status == JXL_DEC_BASIC_INFO)
+        {
+            if (JXL_DEC_SUCCESS != JxlDecoderGetBasicInfo(dec.get(), &info))
+            {
+                std::cout << "JxlDecoderGetBasicInfo failed" << std::endl;
+                return cv::Mat();
+            }
+            format = get_pixel_format(info);
+            img = cv::Mat(info.ysize, info.xsize, get_opencv_type(info));
+        }
+        else if (status == JXL_DEC_COLOR_ENCODING)
+        {
+            // Get the ICC color profile of the pixel data
+            size_t icc_size;
+#if JPEGXL_MAJOR_VERSION == 0 && JPEGXL_MINOR_VERSION < 10
+            if (JXL_DEC_SUCCESS !=
+                JxlDecoderGetICCProfileSize(dec.get(), &format, JXL_COLOR_PROFILE_TARGET_DATA,
+                                            &icc_size))
+#else
+            if (JXL_DEC_SUCCESS !=
+                JxlDecoderGetICCProfileSize(dec.get(), JXL_COLOR_PROFILE_TARGET_DATA,
+                                            &icc_size))
+#endif
+            {
+                std::cout << "JxlDecoderGetICCProfileSize failed" << std::endl;
+                return cv::Mat();
+            }
+            icc_profile.resize(icc_size);
+#if JPEGXL_MAJOR_VERSION == 0 && JPEGXL_MINOR_VERSION < 10
+            if (JXL_DEC_SUCCESS != JxlDecoderGetColorAsICCProfile(
+                                       dec.get(), &format, JXL_COLOR_PROFILE_TARGET_DATA,
+                                       icc_profile.data(), icc_profile.size()))
+#else
+            if (JXL_DEC_SUCCESS != JxlDecoderGetColorAsICCProfile(
+                                       dec.get(), JXL_COLOR_PROFILE_TARGET_DATA,
+                                       icc_profile.data(), icc_profile.size()))
+#endif
+            {
+                std::cout << "JxlDecoderGetColorAsICCProfile failed" << std::endl;
+                return cv::Mat();
+            }
+        }
+        else if (status == JXL_DEC_NEED_IMAGE_OUT_BUFFER)
+        {
+            size_t buffer_size;
+            auto res = JxlDecoderImageOutBufferSize(dec.get(), &format, &buffer_size);
+            if (JXL_DEC_SUCCESS != res)
+            {
+                std::cout << "JxlDecoderImageOutBufferSize failed " << res << std::endl;
+                // return cv::Mat();
+            }
+            size_t pixels_buffer_size = img.elemSize() * img.total();
+            if (buffer_size != pixels_buffer_size)
+            {
+                std::cout << "Invalid out buffer size " << buffer_size << " " << pixels_buffer_size << std::endl;
+                // return cv::Mat();
+            }
+            void *pixels_buffer = static_cast<void *>(img.data);
+            if (JXL_DEC_SUCCESS != JxlDecoderSetImageOutBuffer(dec.get(), &format,
+                                                               pixels_buffer,
+                                                               pixels_buffer_size))
+            {
+                std::cout << "JxlDecoderSetImageOutBuffer failed" << std::endl;
+                return cv::Mat();
+            }
+        }
+        else if (status == JXL_DEC_FULL_IMAGE)
+        {
+        }
+        else if (status == JXL_DEC_SUCCESS)
+        {
+            return img;
+        }
+        else
+        {
+            std::cout << "Unknown decoder status" << std::endl;
+            return cv::Mat();
+        }
+    }
+    return cv::Mat();
+}
+
 std::optional<std::string> exif_read_string_tag(ExifData *exif, ExifIfd ifd, ExifTag tag)
 {
     ExifEntry *entry = exif_content_get_entry(exif->ifd[ifd], tag);
@@ -128,8 +339,10 @@ std::optional<std::string> exif_read_string_tag(ExifData *exif, ExifIfd ifd, Exi
     return std::string(buf);
 }
 
-std::string parse_serial_number(const std::filesystem::path jxl)
+std::string extract_serial_number_and_channels(const std::filesystem::path jxl, size_t &num_channels, std::string &spectral_band)
 {
+    num_channels = extract_jxl_basic_info(jxl).num_color_channels;
+
     std::vector<uint8_t> raw = extract_jxl_box(jxl, "Exif");
 
     std::vector<uint8_t> raw_shifted(raw.size() + 2, 0);
@@ -145,7 +358,18 @@ std::string parse_serial_number(const std::filesystem::path jxl)
     }
     exif_data_load_data(exif, raw_shifted.data(), raw_shifted.size());
 
-    return exif_read_string_tag(exif, EXIF_IFD_EXIF, EXIF_TAG_BODY_SERIAL_NUMBER).value_or("");
+    std::string maker_note_str = exif_read_string_tag(exif, EXIF_IFD_EXIF, (ExifTag)EXIF_TAG_MAKER_NOTE).value_or("");
+    try
+    {
+        json maker_note = json::parse(maker_note_str);
+        spectral_band = maker_note["spectral_band"];
+    }
+    catch (const std::exception &e)
+    {
+    }
+
+    return exif_read_string_tag(exif, EXIF_IFD_EXIF, EXIF_TAG_BODY_SERIAL_NUMBER).value_or("") +
+           exif_read_string_tag(exif, EXIF_IFD_0, EXIF_TAG_CAMERA_LABEL).value_or("");
 }
 
 void ImageView::initializeCameraPos(const Eigen::Vector3f &trans, const Eigen::Matrix<float, 3, 3> &rot)
@@ -227,7 +451,7 @@ ImageView::ImageView(std::size_t id, const Eigen::Vector3f &translation,
     cv::rotate(_weight_br, _weight_tr, cv::ROTATE_90_COUNTERCLOCKWISE);
     cv::rotate(_weight_br, _weight_bl, cv::ROTATE_90_CLOCKWISE);
 
-    _serial_number = parse_serial_number(image_file);
+    _serial_number = extract_serial_number_and_channels(image_file, _num_channels, _spectral_band);
 }
 
 cv::Point2f ImageView::get_pixel_coords(Eigen::Vector3f const &vertex) const
@@ -264,6 +488,21 @@ cv::Mat ImageView::GetTile(const std::vector<cv::Point2f> &corners, int interp_t
     cv::Mat warp = cv::getPerspectiveTransform(corners, tile_corners);
     cv::Mat tile(_tile_width, _tile_width, image.type());
     cv::warpPerspective(image, tile, warp, tile.size(), interp_type, border_mode);
+    if (!_scale.empty())
+    {
+        if (image.channels() == 3 && _scale.size() == 3)
+        {
+            cv::multiply(tile, cv::Scalar(_scale[0], _scale[1], _scale[2]), tile, 1, tile.type());
+        }
+        else if (image.channels() == 1)
+        {
+            tile *= _scale[0];
+        }
+        else
+        {
+            throw std::invalid_argument("Can't scale image, wrong number of channels");
+        }
+    }
 
     if (preserve_max)
     {
@@ -304,6 +543,26 @@ cv::Mat ImageView::GetTile(const std::vector<cv::Point2f> &corners, int interp_t
     }
 
     return tile;
+}
+
+void ImageView::SetScale(const std::vector<float> &scale)
+{
+    _scale = scale;
+}
+
+std::vector<float> ImageView::GetScale() const
+{
+    return _scale;
+}
+
+size_t ImageView::NumChannels() const
+{
+    return _num_channels;
+}
+
+bool ImageView::IsLwir() const
+{
+    return (_spectral_band == "LWIR") || (_spectral_band.empty() && _num_channels == 1);
 }
 
 bool ImageView::IsImageLoaded() const
@@ -381,9 +640,13 @@ bool ImageView::intersects(const std::vector<cv::Point2f> &corners) const
 void ImageView::load_image(void)
 {
     image = cv::imread(image_file, cv::IMREAD_ANYDEPTH | cv::IMREAD_UNCHANGED);
+    if (image.channels() == 3)
+    {
+        cv::cvtColor(image, image, cv::COLOR_BGR2RGB);
+    }
     if (image.empty())
     {
-        image = cv::Mat::zeros(1024, 1280, CV_16U);
+        image = read_jxl(image_file);
     }
 }
 
@@ -425,13 +688,23 @@ void ImageView::get_face_info(const std::vector<cv::Point2f> &corners,
     cv::Mat tile_f;
     tile.convertTo(tile_f, CV_32F);
 
+    face_info->tl.reserve(tile.channels());
+    face_info->tr.reserve(tile.channels());
+    face_info->br.reserve(tile.channels());
+    face_info->bl.reserve(tile.channels());
+
     if (face_info->fully_visible)
     {
         face_info->num_valid_pixels = _tile_width * _tile_width;
-        face_info->tl = _weight_tl.dot(tile_f);
-        face_info->tr = _weight_tr.dot(tile_f);
-        face_info->br = _weight_br.dot(tile_f);
-        face_info->bl = _weight_bl.dot(tile_f);
+        std::vector<cv::Mat> tile_channels;
+        cv::split(tile_f, tile_channels);
+        for (const auto &tile_channel : tile_channels)
+        {
+            face_info->tl.push_back(_weight_tl.dot(tile_channel));
+            face_info->tr.push_back(_weight_tr.dot(tile_channel));
+            face_info->br.push_back(_weight_br.dot(tile_channel));
+            face_info->bl.push_back(_weight_bl.dot(tile_channel));
+        }
         face_info->tl_w = 1;
         face_info->tr_w = 1;
         face_info->br_w = 1;
@@ -440,11 +713,15 @@ void ImageView::get_face_info(const std::vector<cv::Point2f> &corners,
     else
     {
         cv::Mat mask = GetTile(corners, cv::INTER_NEAREST, cv::BORDER_CONSTANT, preserve_max);
+        if (mask.channels() == 3)
+        {
+            cv::cvtColor(mask, mask, cv::COLOR_BGR2GRAY);
+        }
         if (mask.type() != CV_8U)
         {
             mask.convertTo(mask, CV_8U);
         }
-        face_info->num_valid_pixels = cv::countNonZero(tile);
+        face_info->num_valid_pixels = cv::countNonZero(mask);
         cv::Mat weight_tl, weight_tr, weight_br, weight_bl;
         _weight_tl.copyTo(weight_tl, mask);
         _weight_tr.copyTo(weight_tr, mask);
@@ -456,10 +733,15 @@ void ImageView::get_face_info(const std::vector<cv::Point2f> &corners,
         face_info->br_w = cv::sum(weight_br)[0];
         face_info->bl_w = cv::sum(weight_bl)[0];
 
-        face_info->tl = weight_tl.dot(tile_f);
-        face_info->tr = weight_tr.dot(tile_f);
-        face_info->br = weight_br.dot(tile_f);
-        face_info->bl = weight_bl.dot(tile_f);
+        std::vector<cv::Mat> tile_channels;
+        cv::split(tile_f, tile_channels);
+        for (const auto &tile_channel : tile_channels)
+        {
+            face_info->tl.push_back(weight_tl.dot(tile_channel));
+            face_info->tr.push_back(weight_tr.dot(tile_channel));
+            face_info->br.push_back(weight_br.dot(tile_channel));
+            face_info->bl.push_back(weight_bl.dot(tile_channel));
+        }
     }
 
     cv::Mat grad_x;
@@ -497,7 +779,7 @@ std::shared_ptr<Undistorter> create_undistorter_brown(const json &cam)
     dist_coeffs.push_back(cam["p1"]);
     dist_coeffs.push_back(cam["p2"]);
     dist_coeffs.push_back(cam["k3"]);
-    return std::make_shared<Undistorter>(fx, fy, cx, cy, width, height, dist_coeffs);
+    return std::make_shared<Undistorter>(fx, fy, cx, cy, width, height, dist_coeffs, false);
 }
 
 std::shared_ptr<Undistorter> create_undistorter_perspective(const json &cam)
@@ -510,7 +792,23 @@ std::shared_ptr<Undistorter> create_undistorter_perspective(const json &cam)
     dist_coeffs.push_back(cam["k2"]);
     dist_coeffs.push_back(0);
     dist_coeffs.push_back(0);
-    return std::make_shared<Undistorter>(f, f, 0.0, 0.0, width, height, dist_coeffs);
+    return std::make_shared<Undistorter>(f, f, 0.0, 0.0, width, height, dist_coeffs, false);
+}
+
+std::shared_ptr<Undistorter> create_undistorter_fisheye(const json &cam)
+{
+    double fx = cam["focal_x"];
+    double fy = cam["focal_y"];
+    double cx = cam["c_x"];
+    double cy = cam["c_y"];
+    size_t width = cam["width"];
+    size_t height = cam["height"];
+    std::vector<double> dist_coeffs;
+    dist_coeffs.push_back(cam["k1"]);
+    dist_coeffs.push_back(cam["k2"]);
+    dist_coeffs.push_back(cam["k3"]);
+    dist_coeffs.push_back(cam["k4"]);
+    return std::make_shared<Undistorter>(fx, fy, cx, cy, width, height, dist_coeffs, true);
 }
 
 std::shared_ptr<Undistorter> create_undistorter(const json &cam)
@@ -523,7 +821,11 @@ std::shared_ptr<Undistorter> create_undistorter(const json &cam)
     {
         return create_undistorter_perspective(cam);
     }
-    throw std::invalid_argument("invalid projection type");
+    else if (cam["projection_type"] == "fisheye_opencv")
+    {
+        return create_undistorter_fisheye(cam);
+    }
+    throw std::invalid_argument(std::string("invalid projection type: ") + std::string(cam["projection_type"]));
 }
 
 std::vector<ImageView> generate_image_views(const std::filesystem::path &json_file)
@@ -571,4 +873,10 @@ std::optional<double> get_mean_time(const std::vector<ImageView> &image_views)
         return std::nullopt;
     }
     return sum / num;
+}
+
+float quad_brightness(const QuadInfo &quad_info, int channel)
+{
+    return (quad_info.tl[channel] + quad_info.tr[channel] + quad_info.br[channel] + quad_info.bl[channel]) /
+           (quad_info.tl_w + quad_info.tr_w + quad_info.br_w + quad_info.bl_w);
 }

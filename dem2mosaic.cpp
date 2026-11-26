@@ -198,7 +198,7 @@ cv::Mat view_selection(DataCosts const &data_costs, const QuadMesh &mesh,
 
 std::vector<std::vector<QuadInfo>> calculate_face_projection_infos(const QuadMesh &mesh,
                                                                    const std::vector<ImageView> &image_views,
-                                                                   std::vector<TemperatureCompensation *> &temp_comp_per_view)
+                                                                   std::vector<TemperatureCompensation *> *temp_comp_per_view)
 {
     std::vector<std::vector<QuadInfo>> face_projection_infos(mesh.NumFaces());
     // std::vector<unsigned int> const & faces = mesh.get_faces();
@@ -206,12 +206,12 @@ std::vector<std::vector<QuadInfo>> calculate_face_projection_infos(const QuadMes
     // mve::TriangleMesh::NormalList const & face_normals = mesh.get_face_normals();
 
     std::size_t const num_views = image_views.size();
-    temp_comp_per_view.resize(num_views);
 
     // std::cout << "\tBuilding BVH from " << mesh.NumFaces() << " faces... " << std::flush;
     // BVHTree bvh_tree(faces, vertices);
     // std::cout << "done. (Took: " << timer.get_elapsed() << " ms)" << std::endl;
 
+    const int num_channels = image_views[0].NumChannels();
     int next_camera_id = 0;
     std::map<std::string, int> camera_ids;
 
@@ -226,21 +226,40 @@ std::vector<std::vector<QuadInfo>> calculate_face_projection_infos(const QuadMes
         }
     }
     const size_t num_cameras = camera_ids.size();
-    std::vector<TemperatureCompensation *> temp_comps(num_cameras);
-    for (auto &temp_comp : temp_comps)
+    std::vector<TemperatureCompensation *> temp_comps;
+    int linear_system_size;
+    std::vector<Eigen::VectorXd> Ab_overall;
+    std::vector<Eigen::MatrixXd> AA_overall;
+    if (temp_comp_per_view != nullptr)
     {
-        temp_comp = new TemperatureCompensation;
-    }
+        temp_comp_per_view->resize(num_views);
+        for (size_t i = 0; i < num_cameras; i++)
+        {
+            temp_comps.push_back(new TemperatureCompensation);
+        }
+        linear_system_size = num_cameras + 1;
 
-    Eigen::VectorXd Ab_overall = Eigen::VectorXd::Zero(num_cameras + 1);
-    Eigen::MatrixXd AA_overall = Eigen::MatrixXd::Zero(num_cameras + 1, num_cameras + 1);
+        for (int i = 0; i < num_channels; i++)
+        {
+            Ab_overall.push_back(Eigen::VectorXd::Zero(linear_system_size));
+            AA_overall.push_back(Eigen::MatrixXd::Zero(linear_system_size, linear_system_size));
+        }
+    }
 
 #pragma omp parallel
     {
         std::vector<std::pair<std::size_t, QuadInfo>> projected_face_view_infos;
 
-        Eigen::VectorXd Ab = Eigen::VectorXd::Zero(num_cameras + 1);
-        Eigen::MatrixXd AA = Eigen::MatrixXd::Zero(num_cameras + 1, num_cameras + 1);
+        std::vector<Eigen::VectorXd> Ab;
+        std::vector<Eigen::MatrixXd> AA;
+        if (temp_comp_per_view != nullptr)
+        {
+            for (int i = 0; i < num_channels; i++)
+            {
+                Ab.push_back(Eigen::VectorXd::Zero(linear_system_size));
+                AA.push_back(Eigen::MatrixXd::Zero(linear_system_size, linear_system_size));
+            }
+        }
 
 #pragma omp for schedule(dynamic)
 #if !defined(_MSC_VER)
@@ -253,7 +272,10 @@ std::vector<std::vector<QuadInfo>> calculate_face_projection_infos(const QuadMes
             ImageView image_view = image_views.at(k);
             std::string sn = image_view.get_serial_number();
             int camera_id = camera_ids[sn];
-            temp_comp_per_view[k] = temp_comps[camera_id];
+            if (temp_comp_per_view != nullptr)
+            {
+                (*temp_comp_per_view)[k] = temp_comps[camera_id];
+            }
 
             image_view.load_image();
             if (!image_view.IsImageLoaded())
@@ -297,7 +319,9 @@ std::vector<std::vector<QuadInfo>> calculate_face_projection_infos(const QuadMes
 
                     /* Projects into the valid part of the ImageView? */
                     if (!image_view.intersects(corner_pixels))
+                    {
                         continue;
+                    }
 
                     // BVHTree::Ray ray;
                     // ray.dir = view_pos - face_center;
@@ -316,31 +340,37 @@ std::vector<std::vector<QuadInfo>> calculate_face_projection_infos(const QuadMes
                     image_view.get_face_info(corner_pixels, &info);
 
                     if (info.quality <= 0.0)
+                    {
                         continue;
+                    }
+
+                    if (temp_comp_per_view != nullptr)
+                    {
 
 #if USE_LOCAL_NORMAL
-                    float cos_incidence = cos_viewing_angle;
+                        float cos_incidence = cos_viewing_angle;
 #else
-                    float cos_incidence = face_to_view_vec.dot(Eigen::Vector3f(0, 0, 1));
+                        float cos_incidence = face_to_view_vec.dot(Eigen::Vector3f(0, 0, 1));
 #endif
 
-                    float temp_weight = info.tl_w + info.tr_w + info.br_w + info.bl_w;
-                    if (temp_weight > 0)
-                    {
-                        float temp = (info.tl + info.tr + info.br + info.bl) / temp_weight;
+                        float temp_weight = info.tl_w + info.tr_w + info.br_w + info.bl_w;
+                        if (temp_weight > 0)
+                        {
+                            float temp = (info.tl[0] + info.tr[0] + info.br[0] + info.bl[0]) / temp_weight;
 
-                        double k = 1.0 - cos_incidence;
-                        k = k * k;
-                        k = k * k; // (1-cos)^4
-                        double w = cos_incidence;
+                            double k = 1.0 - cos_incidence;
+                            k = k * k;
+                            k = k * k; // (1-cos)^4
+                            double w = cos_incidence;
 
-                        Eigen::VectorXd A = Eigen::VectorXd::Zero(num_cameras + 1);
-                        A[camera_id] = w;
-                        A[num_cameras] = w * k;
-                        double b = w * temp;
+                            Eigen::VectorXd A = Eigen::VectorXd::Zero(num_cameras + 1);
+                            A[camera_id] = w;
+                            A[num_cameras] = w * k;
+                            double b = w * temp;
 
-                        AA += A * A.transpose();
-                        Ab += A * b;
+                            AA[0] += A * A.transpose();
+                            Ab[0] += A * b;
+                        }
                     }
 
                     std::pair<std::size_t, QuadInfo> pair(face_id, info);
@@ -362,21 +392,102 @@ std::vector<std::vector<QuadInfo>> calculate_face_projection_infos(const QuadMes
                 face_projection_infos.at(face_id).push_back(info);
             }
             projected_face_view_infos.clear();
-            AA_overall += AA;
-            Ab_overall += Ab;
+
+            if (temp_comp_per_view != nullptr)
+            {
+                for (int c = 0; c < num_channels; c++)
+                {
+                    AA_overall[c] += AA[c];
+                    Ab_overall[c] += Ab[c];
+                }
+            }
         }
     }
-    Eigen::VectorXd x = AA_overall.ldlt().solve(Ab_overall);
-    std::cout << "Temperature Compensation Solution:" << std::endl;
-    double mean_temp = x.head(num_cameras).mean();
-    for (const auto &[sn, id] : camera_ids)
+
+    if (temp_comp_per_view != nullptr)
     {
-        std::cout << sn << ": " << mean_temp - x[id] << ", " << x[num_cameras] << std::endl;
-        temp_comps[id]->offset = x[id] - mean_temp;
-        temp_comps[id]->b = x[num_cameras];
+        Eigen::VectorXd x = AA_overall[0].ldlt().solve(Ab_overall[0]);
+        std::cout << "Temperature Compensation Solution:" << std::endl;
+        double mean_temp = x.head(num_cameras).mean();
+        for (const auto &[sn, id] : camera_ids)
+        {
+            std::cout << sn << ": " << mean_temp - x[id] << ", " << x[num_cameras] << std::endl;
+            temp_comps[id]->offset = x[id] - mean_temp;
+            temp_comps[id]->b = x[num_cameras];
+        }
     }
 
     return face_projection_infos;
+}
+
+void brightness_balance(std::vector<ImageView> &image_views, std::vector<std::vector<QuadInfo>> &face_projection_infos)
+{
+    size_t num_channels = image_views[0].NumChannels();
+    size_t num_views = image_views.size();
+    std::vector<std::vector<float>> image_scales(num_views);
+    for (size_t c = 0; c < num_channels; c++)
+    {
+        Eigen::VectorXd Ab = Eigen::VectorXd::Zero(num_views);
+        Eigen::MatrixXd AA = Eigen::MatrixXd::Zero(num_views, num_views);
+
+        for (size_t k = 0; k < face_projection_infos.size(); k++)
+        {
+            const std::vector<QuadInfo> &infos = face_projection_infos[k];
+            for (size_t i = 0; i < infos.size(); i++)
+            {
+                const QuadInfo &info1 = infos[i];
+                if (!info1.fully_visible)
+                {
+                    continue;
+                }
+                float brightness1 = quad_brightness(info1, c);
+
+                for (size_t j = i + 1; j < infos.size(); j++)
+                {
+                    const QuadInfo &info2 = infos[j];
+                    if (!info2.fully_visible)
+                    {
+                        continue;
+                    }
+                    float brightness2 = quad_brightness(info2, c);
+                    AA(info1.view_id, info1.view_id) += brightness1 * brightness1;
+                    AA(info2.view_id, info2.view_id) += brightness2 * brightness2;
+                    AA(info1.view_id, info2.view_id) -= brightness1 * brightness2;
+                    AA(info2.view_id, info1.view_id) -= brightness1 * brightness2;
+                }
+            }
+        }
+        const double regularization_weight = 0.01;
+        double m = AA.diagonal().mean() * regularization_weight;
+        AA.diagonal().array() += m;
+        Ab.array() += m;
+        Eigen::VectorXd x = AA.ldlt().solve(Ab);
+        x.array() /= x.mean();
+        for (size_t k = 0; k < num_views; k++)
+        {
+            image_scales[k].push_back(x[k]);
+        }
+    }
+
+    for (size_t k = 0; k < num_views; k++)
+    {
+        image_views[k].SetScale(image_scales[k]);
+    }
+    for (size_t k = 0; k < face_projection_infos.size(); k++)
+    {
+        std::vector<QuadInfo> &infos = face_projection_infos[k];
+        for (QuadInfo &info : infos)
+        {
+            std::vector<float> s = image_scales[info.view_id];
+            for (size_t c = 0; c < num_channels; c++)
+            {
+                info.tl[c] *= s[c];
+                info.tr[c] *= s[c];
+                info.br[c] *= s[c];
+                info.bl[c] *= s[c];
+            }
+        }
+    }
 }
 
 DataCosts calculate_data_costs(const QuadMesh &mesh, std::vector<std::vector<QuadInfo>> &face_projection_infos)
@@ -445,27 +556,20 @@ cv::Mat best_local_labels(const std::vector<std::vector<QuadInfo>> &quad_infos, 
     return labels;
 }
 
-float calculate_difference(const std::vector<std::vector<QuadInfo>> &quad_infos, cv::Size mesh_size, int row, int col, uint16_t label, uint16_t label2)
+float corner_value(const std::vector<std::vector<QuadInfo>> &quad_infos, cv::Size mesh_size, int row, int col, uint16_t label_id, int channel)
 {
     float n1 = 0;
-    float n2 = 0;
     float m1 = 0;
-    float m2 = 0;
 
     if (row > 0 && col > 0)
     {
         int index = (row - 1) * mesh_size.width + col - 1;
         for (const QuadInfo &quad_info : quad_infos[index])
         {
-            if (quad_info.view_id == label - 1)
+            if (quad_info.view_id == label_id - 1)
             {
-                m1 += quad_info.br;
+                m1 += quad_info.br[channel];
                 n1 += quad_info.br_w;
-            }
-            else if (quad_info.view_id == label2 - 1)
-            {
-                m2 += quad_info.br;
-                n2 += quad_info.br_w;
             }
         }
     }
@@ -475,15 +579,10 @@ float calculate_difference(const std::vector<std::vector<QuadInfo>> &quad_infos,
         int index = (row - 1) * mesh_size.width + col;
         for (const QuadInfo &quad_info : quad_infos[index])
         {
-            if (quad_info.view_id == label - 1)
+            if (quad_info.view_id == label_id - 1)
             {
-                m1 += quad_info.bl;
+                m1 += quad_info.bl[channel];
                 n1 += quad_info.bl_w;
-            }
-            else if (quad_info.view_id == label2 - 1)
-            {
-                m2 += quad_info.bl;
-                n2 += quad_info.bl_w;
             }
         }
     }
@@ -493,15 +592,10 @@ float calculate_difference(const std::vector<std::vector<QuadInfo>> &quad_infos,
         int index = (row)*mesh_size.width + col - 1;
         for (const QuadInfo &quad_info : quad_infos[index])
         {
-            if (quad_info.view_id == label - 1)
+            if (quad_info.view_id == label_id - 1)
             {
-                m1 += quad_info.tr;
+                m1 += quad_info.tr[channel];
                 n1 += quad_info.tr_w;
-            }
-            else if (quad_info.view_id == label2 - 1)
-            {
-                m2 += quad_info.tr;
-                n2 += quad_info.tr_w;
             }
         }
     }
@@ -511,21 +605,16 @@ float calculate_difference(const std::vector<std::vector<QuadInfo>> &quad_infos,
         int index = row * mesh_size.width + col;
         for (const QuadInfo &quad_info : quad_infos[index])
         {
-            if (quad_info.view_id == label - 1)
+            if (quad_info.view_id == label_id - 1)
             {
-                m1 += quad_info.tl;
+                m1 += quad_info.tl[channel];
                 n1 += quad_info.tl_w;
-            }
-            else if (quad_info.view_id == label2 - 1)
-            {
-                m2 += quad_info.tl;
-                n2 += quad_info.tl_w;
             }
         }
     }
-    assert(n1 > 0 && n2 > 0);
+    assert(n1 > 0);
 
-    return m2 / n2 - m1 / n1;
+    return m1 / n1;
 }
 
 cv::Mat global_seam_leveling(const cv::Mat &labels, const std::vector<std::vector<QuadInfo>> &quad_infos, const cv::Mat &existing_adjustments)
@@ -650,8 +739,10 @@ cv::Mat global_seam_leveling(const cv::Mat &labels, const std::vector<std::vecto
 
     std::cout << "Set Gamma from triplets" << std::endl;
 
+    int num_channels = existing_adjustments.channels();
+
     std::vector<SpCoeff> coefficients_A;
-    std::vector<float> coefficients_b;
+    std::vector<std::vector<float>> coefficients_b(num_channels);
     row = 0;
 
     for (int i = 0; i <= labels.rows; i++)
@@ -709,8 +800,13 @@ cv::Mat global_seam_leveling(const cv::Mat &labels, const std::vector<std::vecto
                 {
                     coefficients_A.push_back(SpCoeff(row, vertex_indices[i1], 1));
                     coefficients_A.push_back(SpCoeff(row, vertex_indices[i2], -1));
-                    coefficients_b.push_back(calculate_difference(quad_infos, labels.size(), i, j, tile_labels[i1], tile_labels[i2]));
-                    coefficients_b.back() += existing_adjustments.at<float>(adjustment_points[i2]) - existing_adjustments.at<float>(adjustment_points[i1]);
+                    for (int channel = 0; channel < num_channels; channel++)
+                    {
+                        coefficients_b[channel].push_back(corner_value(quad_infos, labels.size(), i, j, tile_labels[i2], channel) -
+                                                          corner_value(quad_infos, labels.size(), i, j, tile_labels[i1], channel));
+                        coefficients_b[channel].back() += existing_adjustments.at<float>(adjustment_points[i2].y, adjustment_points[i2].x * num_channels + channel) -
+                                                          existing_adjustments.at<float>(adjustment_points[i1].y, adjustment_points[i1].x * num_channels + channel);
+                    }
                     row++;
                 }
             }
@@ -746,23 +842,27 @@ cv::Mat global_seam_leveling(const cv::Mat &labels, const std::vector<std::vecto
     cg.compute(Lhs);
 
     /* Prepare right hand side. */
-    Eigen::VectorXf b(A_rows);
-    for (std::size_t i = 0; i < coefficients_b.size(); ++i)
+    Eigen::MatrixXf b(A_rows, num_channels);
+    for (std::size_t channel = 0; channel < coefficients_b.size(); ++channel)
     {
-        b[i] = coefficients_b[i];
+        for (std::size_t i = 0; i < coefficients_b[channel].size(); ++i)
+        {
+            b(i, channel) = coefficients_b[channel][i];
+        }
     }
-    Eigen::VectorXf Rhs = SpMat(A.transpose()) * b;
+    Eigen::MatrixXf Rhs = SpMat(A.transpose()) * b;
 
     /* Solve for x. */
-    Eigen::VectorXf x(x_rows);
+    Eigen::MatrixXf x(x_rows, num_channels);
     x = cg.solve(Rhs);
 
     /* Subtract mean because system is underconstrained and we seek the solution with minimal adjustments. */
-    x = x.array() - x.mean();
+    x.rowwise() -= x.colwise().mean();
 
     std::cout << "\t\tCG took " << cg.iterations() << " iterations. Residual is " << cg.error() << std::endl;
 
-    cv::Mat adjustments = cv::Mat::zeros(index_image.rows, index_image.cols, CV_32F);
+    cv::Mat adjustments = cv::Mat::zeros(index_image.rows, index_image.cols, CV_32FC(num_channels));
+
     for (int i = 0; i < index_image.rows; i++)
     {
         for (int j = 0; j < index_image.cols; j++)
@@ -772,18 +872,19 @@ cv::Mat global_seam_leveling(const cv::Mat &labels, const std::vector<std::vecto
             {
                 continue;
             }
-
-            adjustments.at<float>(i, j) = x[index];
+            for (int channel = 0; channel < num_channels; channel++)
+            {
+                adjustments.at<float>(i, num_channels * j + channel) = x(index, channel);
+            }
         }
     }
 
     return adjustments;
 }
 
-cv::Mat create_mosaic(std::vector<ImageView> &image_views, const QuadMesh &mesh, const cv::Mat &labels, const cv::Mat &adjustments)
+cv::Mat create_mosaic(std::vector<ImageView> &image_views, const QuadMesh &mesh, const cv::Mat &labels, const cv::Mat &adjustments, bool preserve_max)
 {
     constexpr size_t tile_width = 32;
-    cv::Mat mosaic = cv::Mat::zeros(labels.rows * tile_width, labels.cols * tile_width, CV_16U);
 
     cv::Mat weight_br(tile_width, tile_width, CV_32F);
     for (size_t i = 0; i < tile_width; i++)
@@ -803,6 +904,9 @@ cv::Mat create_mosaic(std::vector<ImageView> &image_views, const QuadMesh &mesh,
     cv::rotate(weight_br, weight_tr, cv::ROTATE_90_COUNTERCLOCKWISE);
     cv::rotate(weight_br, weight_bl, cv::ROTATE_90_CLOCKWISE);
 
+    int num_channels = adjustments.channels();
+    cv::Mat mosaic = cv::Mat::zeros(labels.rows * tile_width, labels.cols * tile_width, CV_16UC(num_channels));
+
     for (size_t k = 0; k < image_views.size(); k++)
     {
         image_views[k].load_image();
@@ -821,13 +925,18 @@ cv::Mat create_mosaic(std::vector<ImageView> &image_views, const QuadMesh &mesh,
 
                     std::vector<cv::Point2f> corner_pixels = image_views[k].get_pixel_coords(corner_points);
 
-                    constexpr bool preserve_max = true;
                     cv::Mat tile = image_views[k].GetTile(corner_pixels, cv::INTER_LINEAR, cv::BORDER_CONSTANT, preserve_max);
 
-                    cv::Mat adjustment = adjustments.at<float>(2 * i, 2 * j) * weight_tl +
-                                         adjustments.at<float>(2 * i, 2 * j + 1) * weight_tr +
-                                         adjustments.at<float>(2 * i + 1, 2 * j + 1) * weight_br +
-                                         adjustments.at<float>(2 * i + 1, 2 * j) * weight_bl;
+                    std::vector<cv::Mat> channel_adjustments;
+                    for (int channel = 0; channel < num_channels; channel++)
+                    {
+                        channel_adjustments.push_back(adjustments.at<float>(2 * i, num_channels * 2 * j + channel) * weight_tl +
+                                                      adjustments.at<float>(2 * i, num_channels * (2 * j + 1) + channel) * weight_tr +
+                                                      adjustments.at<float>(2 * i + 1, num_channels * (2 * j + 1) + channel) * weight_br +
+                                                      adjustments.at<float>(2 * i + 1, num_channels * 2 * j + channel) * weight_bl);
+                    }
+                    cv::Mat adjustment;
+                    cv::merge(channel_adjustments, adjustment);
                     cv::add(tile, adjustment, tile, cv::noArray(), tile.type());
                     tile.copyTo(mosaic(cv::Rect(j * tile_width, i * tile_width, tile_width, tile_width)));
                 }
@@ -851,7 +960,9 @@ int main(int argc, char **argv)
     const std::filesystem::path out_dir(argv[4]);
 
     const std::filesystem::path labeling_file;
-    const bool write_intermediate_results = false;
+    const bool write_intermediate_results = true;
+
+    auto t1 = std::chrono::steady_clock::now();
 
     if (!std::filesystem::is_directory(out_dir))
     {
@@ -880,10 +991,14 @@ int main(int argc, char **argv)
 
     std::cout << "Load and prepare mesh: " << std::endl;
     QuadMesh mesh(dem_path);
+    std::cout << "Mesh Prepared at: " << std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - t1).count() << std::endl;
 
     std::cout << "Generating image views: " << std::endl;
     std::vector<ImageView> image_views = generate_image_views(reconstruction_path);
     std::cout << "Generated " << image_views.size() << " image views" << std::endl;
+    std::cout << "Views generated at: " << std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - t1).count() << std::endl;
+
+    const bool is_lwir = image_views[0].IsLwir();
 
     cv::Mat labels;
     cv::Mat adjustments;
@@ -893,9 +1008,22 @@ int main(int argc, char **argv)
     {
         std::vector<TemperatureCompensation *> temp_comp_per_view;
         std::cout << "Calculating Face Info" << std::endl;
-        quad_infos = calculate_face_projection_infos(mesh, image_views, temp_comp_per_view);
-        std::cout << "Calculationt Data Costs" << std::endl;
+        quad_infos = calculate_face_projection_infos(mesh, image_views, is_lwir ? &temp_comp_per_view : nullptr);
+        std::cout << "Calculated Face Info at: " << std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - t1).count() << std::endl;
+
+        if (is_lwir)
+        {
+        }
+        else
+        {
+            std::cout << "Brightness Balancing" << std::endl;
+            brightness_balance(image_views, quad_infos);
+            std::cout << "Brightness Balanced at: " << std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - t1).count() << std::endl;
+        }
+
+        std::cout << "Calculating Data Costs" << std::endl;
         DataCosts data_costs = calculate_data_costs(mesh, quad_infos);
+        std::cout << "Calculated Data Costs at: " << std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - t1).count() << std::endl;
 
         size_t n_views = image_views.size();
         std::vector<float> pairwise_cost(n_views * n_views, 0);
@@ -917,6 +1045,7 @@ int main(int argc, char **argv)
         cv::Mat tile_cost;
         std::cout << "Finding best local labels" << std::endl;
         labels = best_local_labels(quad_infos, mesh, tile_cost);
+        std::cout << "Found best local labels at: " << std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - t1).count() << std::endl;
         if (write_intermediate_results)
         {
             cv::Mat img;
@@ -932,8 +1061,17 @@ int main(int argc, char **argv)
         {
             std::cout << "View selection" << std::endl;
             labels = view_selection(data_costs, mesh, tile_cost, pairwise_cost, n_views);
-            std::cout << "Temperature Compensation" << std::endl;
-            adjustments = angular_temperature_compensation(labels, mesh, image_views, temp_comp_per_view);
+            std::cout << "View Selection at: " << std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - t1).count() << std::endl;
+            if (is_lwir)
+            {
+                std::cout << "Temperature Compensation" << std::endl;
+                adjustments = angular_temperature_compensation(labels, mesh, image_views, temp_comp_per_view);
+                std::cout << "Temp Compensation at: " << std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - t1).count() << std::endl;
+            }
+            else
+            {
+                adjustments = cv::Mat::zeros(labels.rows * 2, labels.cols * 2, CV_32FC(image_views[0].NumChannels()));
+            }
 
             if (write_intermediate_results)
             {
@@ -943,7 +1081,9 @@ int main(int argc, char **argv)
                 std::filesystem::path filepath = out_dir / "angular.png";
                 cv::imwrite(filepath, img);
             }
+            std::cout << "Global Seam leveling" << std::endl;
             adjustments = adjustments + global_seam_leveling(labels, quad_infos, adjustments);
+            std::cout << "Global Seam leveling at: " << std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - t1).count() << std::endl;
 
             if (write_intermediate_results)
             {
@@ -995,10 +1135,13 @@ int main(int argc, char **argv)
     geo.gdal_nodata_value = 0;
     geo.capture_time_utc = get_mean_time(image_views);
 
-    cv::Mat mosaic = create_mosaic(image_views, mesh, labels, adjustments);
+    std::cout << "Creating mosaic" << std::endl;
+    cv::Mat mosaic = create_mosaic(image_views, mesh, labels, adjustments, is_lwir);
+    std::cout << "Created mosaic at: " << std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - t1).count() << std::endl;
 
     std::cout << "Local seam leveling" << std::endl;
     cv::Mat local_adjustments = local_seam_leveling(labels, mosaic);
+    std::cout << "Local seam leveling at: " << std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - t1).count() << std::endl;
     cv::add(mosaic, local_adjustments, mosaic, cv::noArray(), CV_16U);
 
     if (write_intermediate_results)
@@ -1012,11 +1155,12 @@ int main(int argc, char **argv)
     std::cout << "Saving mosaic as geotiff" << std::endl;
     std::filesystem::path filepath = out_dir / "mosaic.tiff";
     save_geotiff(filepath, mosaic, geo);
+    std::cout << "Saved geotiff at: " << std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - t1).count() << std::endl;
 
     if (write_intermediate_results)
     {
         adjustments = 0;
-        mosaic = create_mosaic(image_views, mesh, labels, adjustments);
+        mosaic = create_mosaic(image_views, mesh, labels, adjustments, is_lwir);
         std::filesystem::path filepath = out_dir / "mosaic_unadjusted.tiff";
         save_geotiff(filepath, mosaic, geo);
     }

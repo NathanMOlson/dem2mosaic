@@ -27,14 +27,14 @@
 
 struct QuadInfo
 {
-    std::uint16_t view_id;
+    uint16_t view_id;
     float quality;
     bool fully_visible;
     uint16_t num_valid_pixels;
-    float tl;
-    float tr;
-    float br;
-    float bl;
+    std::vector<float> tl;
+    std::vector<float> tr;
+    std::vector<float> br;
+    std::vector<float> bl;
     float tl_w;
     float tr_w;
     float br_w;
@@ -61,6 +61,8 @@ private:
     double _capture_time;
     cv::Mat image;
     std::string _serial_number;
+    size_t _num_channels;
+    std::string _spectral_band;
 
     cv::Mat _weight_tl;
     cv::Mat _weight_tr;
@@ -68,6 +70,7 @@ private:
     cv::Mat _weight_bl;
 
     std::shared_ptr<Undistorter> _undistorter;
+    std::vector<float> _scale;
 
     static constexpr size_t _tile_width = 32;
 
@@ -102,6 +105,10 @@ public:
               const std::filesystem::path &image_file);
 
     cv::Mat GetTile(const std::vector<cv::Point2f> &corners, int interp_type, int border_mode, bool preserve_max) const;
+    void SetScale(const std::vector<float> &scale);
+    std::vector<float> GetScale() const;
+    size_t NumChannels() const;
+    bool IsLwir() const;
 
     bool IsImageLoaded() const;
 
@@ -127,5 +134,6 @@ public:
 
 std::vector<ImageView> generate_image_views(const std::filesystem::path &json_file);
 std::optional<double> get_mean_time(const std::vector<ImageView> &image_views);
+float quad_brightness(const QuadInfo &quad_info, int channel);
 
 #endif
