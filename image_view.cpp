@@ -159,6 +159,174 @@ JxlBasicInfo extract_jxl_basic_info(const std::filesystem::path &filepath)
     return info;
 }
 
+JxlPixelFormat get_pixel_format(const JxlBasicInfo &info)
+{
+    if (info.exponent_bits_per_sample == 0)
+    {
+        if (info.bits_per_sample <= 8)
+        {
+            return JxlPixelFormat{info.num_color_channels, JXL_TYPE_UINT8, JXL_NATIVE_ENDIAN, 0};
+        }
+        else if (info.bits_per_sample <= 16)
+        {
+            return JxlPixelFormat{info.num_color_channels, JXL_TYPE_UINT16, JXL_NATIVE_ENDIAN, 0};
+        }
+    }
+    throw std::invalid_argument("Unsupported JXL image format");
+}
+
+int get_opencv_type(const JxlBasicInfo &info)
+{
+    if (info.num_color_channels == 3 && info.exponent_bits_per_sample == 0)
+    {
+        if (info.bits_per_sample <= 8)
+        {
+            return CV_8UC3;
+        }
+        else if (info.bits_per_sample <= 16)
+        {
+            return CV_16UC3;
+        }
+    }
+    if (info.num_color_channels == 1 && info.exponent_bits_per_sample == 0)
+    {
+        if (info.bits_per_sample <= 8)
+        {
+            return CV_8UC1;
+        }
+        else if (info.bits_per_sample <= 16)
+        {
+            return CV_16UC1;
+        }
+    }
+    throw std::invalid_argument("Unsupported JXL image format");
+}
+
+cv::Mat read_jxl(const std::filesystem::path &filepath)
+{
+    std::ifstream file(filepath, std::ios::binary);
+    if (!file)
+    {
+        std::cout << "Failed to open " << filepath << std::endl;
+        return cv::Mat();
+    }
+    std::vector<uint8_t> jxl = std::vector<uint8_t>(std::istreambuf_iterator<char>(file),
+                                                    std::istreambuf_iterator<char>());
+
+    auto dec = JxlDecoderMake(nullptr);
+    if (JXL_DEC_SUCCESS !=
+        JxlDecoderSubscribeEvents(dec.get(), JXL_DEC_BASIC_INFO |
+                                                 JXL_DEC_COLOR_ENCODING |
+                                                 JXL_DEC_FULL_IMAGE))
+    {
+        std::cout << "JxlDecoderSubscribeEvents failed" << std::endl;
+        return cv::Mat();
+    }
+
+    JxlBasicInfo info;
+    JxlPixelFormat format;
+
+    JxlDecoderSetInput(dec.get(), (uint8_t *)jxl.data(), jxl.size());
+
+    cv::Mat img;
+    std::vector<uint8_t> icc_profile;
+
+    for (;;)
+    {
+        JxlDecoderStatus status = JxlDecoderProcessInput(dec.get());
+
+        if (status == JXL_DEC_ERROR)
+        {
+            std::cout << "Decoder error" << std::endl;
+            return cv::Mat();
+        }
+        else if (status == JXL_DEC_NEED_MORE_INPUT)
+        {
+            std::cout << "Error, already provided all input" << std::endl;
+            return cv::Mat();
+        }
+        else if (status == JXL_DEC_BASIC_INFO)
+        {
+            if (JXL_DEC_SUCCESS != JxlDecoderGetBasicInfo(dec.get(), &info))
+            {
+                std::cout << "JxlDecoderGetBasicInfo failed" << std::endl;
+                return cv::Mat();
+            }
+            format = get_pixel_format(info);
+            img = cv::Mat(info.ysize, info.xsize, get_opencv_type(info));
+        }
+        else if (status == JXL_DEC_COLOR_ENCODING)
+        {
+            // Get the ICC color profile of the pixel data
+            size_t icc_size;
+#if JPEGXL_MAJOR_VERSION == 0 && JPEGXL_MINOR_VERSION < 10
+            if (JXL_DEC_SUCCESS !=
+                JxlDecoderGetICCProfileSize(dec.get(), &format, JXL_COLOR_PROFILE_TARGET_DATA,
+                                            &icc_size))
+#else
+            if (JXL_DEC_SUCCESS !=
+                JxlDecoderGetICCProfileSize(dec.get(), JXL_COLOR_PROFILE_TARGET_DATA,
+                                            &icc_size))
+#endif
+            {
+                std::cout << "JxlDecoderGetICCProfileSize failed" << std::endl;
+                return cv::Mat();
+            }
+            icc_profile.resize(icc_size);
+#if JPEGXL_MAJOR_VERSION == 0 && JPEGXL_MINOR_VERSION < 10
+            if (JXL_DEC_SUCCESS != JxlDecoderGetColorAsICCProfile(
+                                       dec.get(), &format, JXL_COLOR_PROFILE_TARGET_DATA,
+                                       icc_profile.data(), icc_profile.size()))
+#else
+            if (JXL_DEC_SUCCESS != JxlDecoderGetColorAsICCProfile(
+                                       dec.get(), JXL_COLOR_PROFILE_TARGET_DATA,
+                                       icc_profile.data(), icc_profile.size()))
+#endif
+            {
+                std::cout << "JxlDecoderGetColorAsICCProfile failed" << std::endl;
+                return cv::Mat();
+            }
+        }
+        else if (status == JXL_DEC_NEED_IMAGE_OUT_BUFFER)
+        {
+            size_t buffer_size;
+            auto res = JxlDecoderImageOutBufferSize(dec.get(), &format, &buffer_size);
+            if (JXL_DEC_SUCCESS != res)
+            {
+                std::cout << "JxlDecoderImageOutBufferSize failed " << res << std::endl;
+                // return cv::Mat();
+            }
+            size_t pixels_buffer_size = img.elemSize() * img.total();
+            if (buffer_size != pixels_buffer_size)
+            {
+                std::cout << "Invalid out buffer size " << buffer_size << " " << pixels_buffer_size << std::endl;
+                // return cv::Mat();
+            }
+            void *pixels_buffer = static_cast<void *>(img.data);
+            if (JXL_DEC_SUCCESS != JxlDecoderSetImageOutBuffer(dec.get(), &format,
+                                                               pixels_buffer,
+                                                               pixels_buffer_size))
+            {
+                std::cout << "JxlDecoderSetImageOutBuffer failed" << std::endl;
+                return cv::Mat();
+            }
+        }
+        else if (status == JXL_DEC_FULL_IMAGE)
+        {
+        }
+        else if (status == JXL_DEC_SUCCESS)
+        {
+            return img;
+        }
+        else
+        {
+            std::cout << "Unknown decoder status" << std::endl;
+            return cv::Mat();
+        }
+    }
+    return cv::Mat();
+}
+
 std::optional<std::string> exif_read_string_tag(ExifData *exif, ExifIfd ifd, ExifTag tag)
 {
     ExifEntry *entry = exif_content_get_entry(exif->ifd[ifd], tag);
@@ -472,13 +640,13 @@ bool ImageView::intersects(const std::vector<cv::Point2f> &corners) const
 void ImageView::load_image(void)
 {
     image = cv::imread(image_file, cv::IMREAD_ANYDEPTH | cv::IMREAD_UNCHANGED);
-    if (image.empty())
-    {
-        image = cv::Mat::zeros(1024, 1280, CV_16U);
-    }
     if (image.channels() == 3)
     {
         cv::cvtColor(image, image, cv::COLOR_BGR2RGB);
+    }
+    if (image.empty())
+    {
+        image = read_jxl(image_file);
     }
 }
 
